@@ -3,7 +3,7 @@ import type { Lang } from "./LanguageContext";
 
 type Key = keyof typeof translations;
 
-export const translations: Record<string, Record<Lang, string>> = {
+export const translations = {
   // NAV
   nav_generator: { ar: "المولّد", en: "Generator", tr: "Üretici", ru: "Генератор", es: "Generador" },
   nav_ping: { ar: "البينغ", en: "Ping", tr: "Ping", ru: "Пинг", es: "Ping" },
@@ -62,9 +62,6 @@ export const translations: Record<string, Record<Lang, string>> = {
   gyro_off: { ar: "معطل", en: "Off", tr: "Kapalı", ru: "Выкл", es: "Off" },
   gyro_scope: { ar: "سكوب فقط", en: "Scope Only", tr: "Sadece Dürbün", ru: "Только прицел", es: "Solo mira" },
   gyro_always: { ar: "دائمًا", en: "Always On", tr: "Her Zaman", ru: "Всегда", es: "Siempre" },
-  gyro_off_desc: { ar: "بدون جايرو — تحكم باللمس فقط", en: "No gyro — touch only", tr: "Jiroskop yok — sadece dokunma", ru: "Без гиро — только касание", es: "Sin giro — solo táctil" },
-  gyro_scope_desc: { ar: "جايرو عند فتح السكوب فقط", en: "Gyro activates when scoping", tr: "Dürbün açıldığında aktif", ru: "Гироскоп при прицеливании", es: "Giros al apuntar" },
-  gyro_always_desc: { ar: "جايرو مفعّل طوال الوقت", en: "Gyro always active", tr: "Her zaman aktif", ru: "Гироскоп всегда активен", es: "Giro siempre activo" },
   gyro_msg_off: { ar: "💡 للاعبين الذين يفضلون التحكم الكامل باللمس", en: "💡 For players who prefer full touch control", tr: "💡 Tam dokunmatik kontrol isteyenler için", ru: "💡 Для тех, кто предпочитает сенсор", es: "💡 Para control táctil total" },
   gyro_msg_scope: { ar: "🎯 الوضع الموصى به لمعظم اللاعبين المحترفين", en: "🎯 Recommended for most pro players", tr: "🎯 Çoğu profesyonel için önerilir", ru: "🎯 Рекомендуется для профи", es: "🎯 Recomendado para pros" },
   gyro_msg_always: { ar: "🔄 لأفضل دقة وتتبّع — يتطلب تمرين", en: "🔄 For best precision & tracking — needs practice", tr: "🔄 En iyi hassasiyet — pratik gerekir", ru: "🔄 Для точности — нужна практика", es: "🔄 Máxima precisión — requiere práctica" },
@@ -74,18 +71,6 @@ export const translations: Record<string, Record<Lang, string>> = {
   // FINGERS
   fingers_title: { ar: "عدد الأصابع", en: "Finger Count", tr: "Parmak Sayısı", ru: "Кол-во пальцев", es: "Nº de dedos" },
   fingers_suffix: { ar: "أصابع", en: "Fingers", tr: "Parmak", ru: "пальцев", es: "dedos" },
-
-  // PLAY STYLES
-  playstyle_balanced: { ar: "متوازن", en: "Balanced", tr: "Dengeli", ru: "Сбалансированный", es: "Equilibrado" },
-  playstyle_aggressive: { ar: "عدواني", en: "Aggressive", tr: "Saldırgan", ru: "Агрессивный", es: "Agresivo" },
-  playstyle_competitive: { ar: "تنافسي", en: "Competitive", tr: "Rekabetçi", ru: "Сореновательный", es: "Competitivo" },
-  playstyle_headshot: { ar: "هيدشوت", en: "Headshot", tr: "Kafa Atışı", ru: "Хедшот", es: "Disparo a cabeza" },
-  playstyle_sniper: { ar: "قناص", en: "Sniper Elite", tr: "Keskin Nişancı", ru: "Снайпер", es: "Francotirador" },
-  playstyle_spray: { ar: "رشاش", en: "Spray Master", tr: "Püskürtme Ustası", ru: "Спрей", es: "Maestro del spray" },
-  playstyle_rush: { ar: "اندفاع", en: "Rush", tr: "Hızlı", ru: "Рывок", es: "Embestida" },
-  playstyle_defensive: { ar: "دفاعي", en: "Defensive", tr: "Savunmacı", ru: "Защитный", es: "Defensivo" },
-  playstyle_hybrid: { ar: "هجين", en: "Hybrid", tr: "Melez", ru: "Гибрид", es: "Híbrido" },
-  playstyle_pro: { ar: "احترافي", en: "Pro Elite", tr: "Profesyonel", ru: "Профи", es: "ÉLite" },
 
   // WEAPON
   weapon_title: { ar: "اختر سلاحك", en: "Select Your Weapon", tr: "Silahını Seç", ru: "Выберите оружие", es: "Selecciona arma" },
@@ -131,10 +116,6 @@ export const translations: Record<string, Record<Lang, string>> = {
   ping_title: { ar: "📡 بنق خوادم PUBG Mobile", en: "📡 PUBG Mobile Server Ping", tr: "📡 PUBG Mobile Sunucu Pingo", ru: "📡 Пинг серверов PUBG Mobile", es: "📡 Ping de servidores PUBG Mobile" },
   ping_sub: { ar: "اختبار مباشر لـ 7 مناطق خوادم في اللعبة", en: "Live test across 7 in-game server regions", tr: "7 oyun sunucu bölgesi ile canlı test", ru: "Тест 7 регионов серверов игры", es: "Prueba en vivo en 7 regiones del juego" },
   ping_live: { ar: "مباشر", en: "LIVE", tr: "CANLI", ru: "LIVE", es: "EN VIVO" },
-  ping_live_title: { ar: "مراقبة الشبكة الحية", en: "Live Network Monitor", tr: "Canlı Ağ Monitörü", ru: "Мониторинг сети", es: "Monitor de red" },
-  ping_live_desc: { ar: "قياس حيّ للوصول إلى مناطق الخوادم: latency, jitter, loss", en: "Live reachability to server regions: latency, jitter, loss", tr: "Sunucu bölgelerine canlı erişim: latency, jitter, loss", ru: "Живой доступ к регионам: задержка, джиттер, потери", es: "Acceso en vivo a regiones: latencia, jitter, pérdida" },
-  ping_btn_measuring: { ar: "⏳ جاري القياس...", en: "⏳ Measuring...", tr: "⏳ Ölçülüyor...", ru: "⏳ Измерение...", es: "⏳ Midiendo..." },
-  ping_btn_remeasure: { ar: "🔄 إعادة القياس", en: "🔄 Re-measure", tr: "🔄 Yeniden Ölç", ru: "🔄 Перемерить", es: "🔄 Medir de nuevo" },
   ping_ping: { ar: "بينغ", en: "Ping", tr: "Ping", ru: "Пинг", es: "Ping" },
   ping_jitter: { ar: "Jitter", en: "Jitter", tr: "Jitter", ru: "Джиттер", es: "Jitter" },
   ping_loss: { ar: "Loss %", en: "Loss %", tr: "Loss %", ru: "Потери %", es: "Loss %" },
@@ -144,52 +125,35 @@ export const translations: Record<string, Record<Lang, string>> = {
   ping_quality_medium: { ar: "متوسط", en: "Medium", tr: "Orta", ru: "Средне", es: "Medio" },
   ping_quality_poor: { ar: "ضعيف", en: "Poor", tr: "Kötü", ru: "Плохо", es: "Malo" },
 
-  // FOOTER
-  footer_about: { ar: "أداة احترافية لتحسين تجربة PUBG Mobile في الأردن والشرق الأوسط، مدعومة بمحرك ذكاء اصطناعي خاص لحساب أفضل حساسية.", en: "Professional tool for optimizing PUBG Mobile experience in Jordan and MENA, powered by custom AI sensitivity engine.", tr: "PUBG Mobile deneyimini optimize etmek için profesyonel araç, özel AI motoru ile.", ru: "Профессиональный инструмент оптимизации PUBG Mobile в Иордании, с AI движком.", es: "Herramienta profesional para optimizar PUBG Mobile, con motor IA." },
-  footer_features: { ar: "المميزات", en: "Features", tr: "Özellikler", ru: "Возможности", es: "Características" },
-  footer_f1: { ar: "✅ مولّد حساسية بـ 5 لغات", en: "✅ 5-language sensitivity generator", tr: "✅ 5 dilli hassasiyet üreteci", ru: "✅ Генератор на 5 языках", es: "✅ Generador en 5 idiomas" },
-  footer_f2: { ar: "✅ 77 جهاز مع بيانات حقيقية", en: "✅ 77 devices with real specs", tr: "✅ 77 cihaz gerçek verilerle", ru: "✅ 77 устройств с реальными данными", es: "✅ 77 dispositivos con datos reales" },
-  footer_f3: { ar: "✅ 44 سلاح بملفات ارتداد", en: "✅ 44 weapons with recoil profiles", tr: "✅ 44 silah geri tepme profili", ru: "✅ 44 оружия с профилями отдачи", es: "✅ 44 armas con perfiles de retroceso" },
-  footer_f4: { ar: "✅ مراقب بينغ مباشر", en: "✅ Live ping monitor", tr: "✅ Canlı ping monitörü", ru: "✅ Живой монитор пинга", es: "✅ Monitor de ping en vivo" },
-  footer_f5: { ar: "✅ تسريع PAC Script", en: "✅ PAC Script acceleration", tr: "✅ PAC Script hızlandırma", ru: "✅ Ускорение PAC", es: "✅ Aceleración PAC" },
-  footer_rights: { ar: "© 2026 ALYAZOURI — جميع الحقوق محفوظة", en: "© 2026 ALYAZOURI — All rights reserved", tr: "© 2026 ALYAZOURI — Tüm hakları saklıdır", ru: "© 2026 ALYAZOURI — Все права защищены", es: "© 2026 ALYAZOURI — Todos los derechos reservados" },
-  footer_tagline: { ar: "FORGED IN JORDAN 🇯🇴 — BUILT FOR WINNERS", en: "FORGED IN JORDAN 🇯🇴 — BUILT FOR WINNERS", tr: "JORDAN'DA ÜRETİLDİ 🇯🇴 — KAZANANLAR İÇİN", ru: "СОЗДАНО В ИОРДАНИИ 🇯🇴 — ДЛЯ ПОБЕДИТЕЛЕЙ", es: "FORJADO EN JORDANIA 🇯🇴 — PARA GANADORES" },
-
-  // SAVED PROFILES
+  // SAVED
   saved_eyebrow: { ar: "SAVED PROFILES", en: "SAVED PROFILES", tr: "KAYDEDİLENLER", ru: "СОХРАНЁННЫЕ", es: "GUARDADOS" },
   saved_title: { ar: "🗂️ البروفايلات المحفوظة", en: "🗂️ Saved Profiles", tr: "🗂️ Kaydedilen Profiller", ru: "🗂️ Сохранённые профили", es: "🗂️ Perfiles guardados" },
   saved_sub: { ar: "آخر 5 إعدادات محفوظة محلياً", en: "Last 5 settings saved locally", tr: "Son 5 ayar yerel olarak kaydedildi", ru: "Последние 5 настроек локально", es: "Últimos 5 ajustes guardados localmente" },
   saved_empty: { ar: "لا توجد بروفايلات محفوظة بعد. ولّد حساسيتك الأولى!", en: "No profiles saved yet. Generate your first one!", tr: "Henüz profil kaydedilmedi. İlkini oluştur!", ru: "Пока нет профилей. Создайте первый!", es: "Aún no hay perfiles. ¡Genera el primero!" },
 
-  // PAC SCRIPT
+  // PAC
   pac_eyebrow: { ar: "PAC SCRIPT", en: "PAC SCRIPT", tr: "PAC SCRIPT", ru: "PAC SCRIPT", es: "PAC SCRIPT" },
   pac_title: { ar: "📜 تسريع PAC Script", en: "📜 PAC Script Acceleration", tr: "📜 PAC Script Hızlandırma", ru: "📜 Ускорение PAC", es: "📜 Aceleración PAC" },
   pac_sub: { ar: "تسريع الاتصال بالسيرفرات الأردنية", en: "Accelerate connection to Jordan servers", tr: "Jordan sunucularına bağlantıyı hızlandır", ru: "Ускорение подключения к Иордании", es: "Acelera conexión a Jordania" },
   pac_status: { ar: "الحالة", en: "Status", tr: "Durum", ru: "Статус", es: "Estado" },
   pac_enabled: { ar: "مفعّل", en: "Enabled", tr: "Aktif", ru: "Включено", es: "Activado" },
   pac_disabled: { ar: "معطّل", en: "Disabled", tr: "Kapalı", ru: "Выключено", es: "Desactivado" },
-  pac_toggle_on: { ar: "مفعّل", en: "ON", tr: "AÇIK", ru: "ВКЛ", es: "ON" },
-  pac_toggle_off: { ar: "معطّل", en: "OFF", tr: "KAPALI", ru: "ВЫКЛ", es: "OFF" },
-  pac_ready: { ar: "جاهز للتثبيت", en: "Ready to Install", tr: "Kuruluma Hazır", ru: "Готов к установке", es: "Listo para instalar" },
-  pac_link_label: { ar: "رابط PAC Script", en: "PAC Script URL", tr: "PAC Script URL'si", ru: "URL PAC скрипта", es: "URL del PAC" },
-  pac_copy: { ar: "📋 نسخ الرابط", en: "📋 Copy Link", tr: "📋 Linki Kopyala", ru: "📋 Копировать", es: "📋 Copiar enlace" },
-  pac_copied: { ar: "✅ تم النسخ!", en: "✅ Copied!", tr: "✅ Kopyalandı!", ru: "✅ Скопировано!", es: "✅ ¡Copiado!" },
-  pac_open: { ar: "🔗 فتح", en: "🔗 Open", tr: "🔗 Aç", ru: "🔗 Открыть", es: "🔗 Abrir" },
-  pac_restart: { ar: "🔄 تطبيق وإعادة تشغيل التطبيق", en: "🔄 Apply & Restart App", tr: "🔄 Uygula & Yeniden Başlat", ru: "🔄 Применить и перезапустить", es: "🔄 Aplicar y reiniciar" },
-  pac_restart_note: { ar: "بعد النسخ، افتح إعدادات WiFi في جهازك → Proxy → Auto Config → الصق الرابط → احفظ", en: "After copy, open WiFi settings → Proxy → Auto Config → paste URL → save", tr: "Kopyaladıktan sonra WiFi ayarları → Proxy → Auto Config → yapıştır → kaydet", ru: "Откройте WiFi → Proxy → Auto Config → вставьте URL → сохраните", es: "Abre WiFi → Proxy → Auto Config → pega URL → guarda" },
 
-  // HUD PREVIEW
-  hud_title: { ar: "معاينة HUD", en: "HUD Preview", tr: "HUD Önizleme", ru: "Превью HUD", es: "Vista HUD" },
-  hud_alive: { ar: "أحياء", en: "Alive", tr: "Canlı", ru: "Живы", es: "Vivos" },
-  hud_kills: { ar: "قتل", en: "Kills", tr: "Öldürme", ru: "Убийства", es: "Bajas" },
-  hud_active: { ar: "نشط", en: "active", tr: "aktif", ru: "активно", es: "activo" },
+  // FOOTER
+  footer_rights: { ar: "© 2026 ALYAZOURI — جميع الحقوق محفوظة", en: "© 2026 ALYAZOURI — All rights reserved", tr: "© 2026 ALYAZOURI — Tüm hakları saklıdır", ru: "© 2026 ALYAZOURI — Все права защищены", es: "© 2026 ALYAZOURI — Todos los derechos reservados" },
+  footer_tagline: { ar: "FORGED IN JORDAN 🇯🇴 — BUILT FOR WINNERS", en: "FORGED IN JORDAN 🇯🇴 — BUILT FOR WINNERS", tr: "JORDAN'DA ÜRETİLDİ 🇯🇴 — KAZANANLAR İÇİN", ru: "СОЗДАНО В ИОРДАНИИ 🇯🇴 — ДЛЯ ПОБЕДИТЕЛЕЙ", es: "FORJADO EN JORDANIA 🇯🇴 — PARA GANADORES" },
 
-  // PAC SECTION
-  pac_section_title: { ar: "PAC Script", en: "PAC Script", tr: "PAC Script", ru: "PAC Script", es: "PAC Script" },
+  // EQUATIONS
+  eq_eyebrow: { ar: "MATH ENGINE", en: "MATH ENGINE", tr: "MATEMATİK MOTORU", ru: "МАТЕМАТИЧЕСКИЙ ДВИЖОК", es: "MOTOR MATEMÁTICO" },
+  eq_title: { ar: "🧮 معادلات الحساب", en: "🧮 Calculation Equations", tr: "🧮 Hesaplama Denklemleri", ru: "🧮 Уравнения расчёта", es: "🧮 Ecuaciones de cálculo" },
+  eq_sub: { ar: "الصيغ الرياضية خلف المولّد", en: "The math formulas behind the generator", tr: "Üretecin arkasındaki matematik", ru: "Формулы за генератором", es: "Fórmulas detrás del generador" },
+  eq_rs: { ar: "حساسية اللقطة", en: "Shot Sensitivity", tr: "Atış Hassasiyeti", ru: "Чувствительность выстрела", es: "Sensibilidad de tiro" },
+  eq_gy: { ar: "حساسية الجايرو", en: "Gyro Sensitivity", tr: "Gyro Hassasiyeti", ru: "Чувствительность гиро", es: "Sensibilidad giro" },
+  eq_hd: { ar: "رأس الهدف", en: "Head Targeting", tr: "Kafa Hedefleme", ru: "Прицел в голову", es: "Apuntar a cabeza" },
 };
 
 export function t(key: Key, lang: Lang): string {
   const entry = translations[key];
   if (!entry) return key;
-  return entry[lang] ?? entry.en ?? key;
+  return (entry as unknown as Record<Lang, string>)[lang] ?? entry.en ?? key;
 }

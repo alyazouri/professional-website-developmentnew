@@ -1,319 +1,466 @@
-import { PRO_PROFILES, PUBG_ROWS } from "./data";
-import type { Device, Weapon, ProProfile } from "./data";
+import { useLang } from "./LanguageContext";
+import { t } from "./i18n";
 import { getWeaponProfile } from "./weaponProfiles";
-import type { WeaponProfile } from "./weaponProfiles";
+import { PRO_PROFILES, type Device, type ProProfileId } from "./data";
 
-// ═══════════════════════════════════════════════════════════════
-// PUBG Mobile Global v4.5 (2026) — Hacker-Level Sensitivity
-// ═══════════════════════════════════════════════════════════════
-//
-// Camera & ADS:  0 – 300%
-// Gyroscope:     0 – 400%
-// Free Look:     0 – 300%
-//
-// GOAL: 180° turns + headshot precision + zero recoil
-// ═══════════════════════════════════════════════════════════════
-
-const MAX_CAM  = 300;
-const MAX_GYRO = 400;
-const MAX_FREE = 300;
-
-// ── Types ────────────────────────────────────────────────────
 export type GyroMode = "off" | "scope" | "always";
-export type PlayStyle =
-  | "balanced" | "aggressive" | "competitive" | "headshot"
-  | "sniper"   | "spray"      | "rush"        | "defensive"
-  | "hybrid"   | "pro";
 
-export type SensitivityParams = {
-  device: Device; weapon: Weapon; gyroMode: GyroMode;
-  profile: ProProfile; fingers: number; styleId: PlayStyle;
+export type SensParams = {
+  deviceId: string;
+  device: Device;
+  brandId: string;
+  fingers: number;
+  gyroMode: GyroMode;
+  weaponId: string;
+  weaponName: string;
+  weaponRecoil: number;
+  weaponRange: number;
+  weaponType: string;
+  proProfile: string;
 };
 
-export type SensitivityResult = {
-  cam: Record<string, number>;
-  ads: Record<string, number>;
-  gyro: { cam: Record<string, number>; ads: Record<string, number> };
+export type ScopeSens = {
+  tpp: number; fpp: number; noScope: number; red: number;
+  scope2: number; scope3: number; scope4: number; scope6: number; scope8: number;
+};
+
+export type GameplaySettings = {
+  sprintSensitivity: number;
+  joystickSize: number;
+  tppFOV: number;
+  fppFOV: number;
+};
+
+export type Sens = {
+  cam: ScopeSens;
+  ads: ScopeSens;
+  gyro: { cam: ScopeSens; ads: ScopeSens };
   freeLook: { cam: number; parashoot: number; vehicle: number };
+  gameplay: GameplaySettings;
   aiScore: number;
-  factors: { deviceFactor: number; weaponFactor: number; fingerFactor: number; styleFactor: number };
+  factors: { deviceFactor: number; weaponFactor: number; fingerFactor: number; profileFactor: number };
 };
 
 // ═══════════════════════════════════════════════════════════════
-// BASE VALUES — Hacker Level
-// Camera = 180° turns (CQC tracking)
-// ADS = headshot precision (while firing)
-// Gyro = zero recoil (recoil killer)
+//  PUBG MOBILE GLOBAL 2026 — ENGINE V5 FINAL
+//
+//  4 أنظمة مستقلة:
+//    Camera:   للمسح بدون إطلاق — "as LOW as you can control"
+//    ADS:      للتتبع أثناء الإطلاق — "as HIGH as you can control"
+//    Gyro:     تعديل بميلان الجهاز بدون إطلاق
+//    Gyro ADS: تحكم بالارتداد بميلان الجهاز أثناء الإطلاق
+//
+//  كل scope مستقل. كل نظام مستقل.
+//  القيم الأساسية هي الهدف النهائي.
+//  التعديلات إضافية (+/-) وليست مضاعفات تراكمية.
 // ═══════════════════════════════════════════════════════════════
 
-// ── Camera (0-300) — تتبع سريع 180° ─────────────────────────
-const CAM_BASE: Record<string, number> = {
-  tppNoScope: 175,  // 180° turn speed
-  fppNoScope: 155,  // FPP slightly lower
-  redDot:      85,  // CQC tracking
-  "2x":        65,  // mid tracking
-  "3x":        48,  // mid-long tracking
-  "4x":        38,  // long tracking
-  "6x":        28,  // sniper tracking
-  "8x":        22,  // extreme range
+const ROWS: (keyof ScopeSens)[] = ["tpp","fpp","noScope","red","scope2","scope3","scope4","scope6","scope8"];
+const HIPFIRE: (keyof ScopeSens)[] = ["tpp","fpp","noScope"];
+
+export const SCOPE_DEFS: { key: keyof ScopeSens; icon: string; labelKey: string }[] = [
+  { key: "tpp", icon: "👁️", labelKey: "sens_tpp" },
+  { key: "fpp", icon: "👁️", labelKey: "sens_fpp" },
+  { key: "red", icon: "🔴", labelKey: "sens_red_dot" },
+  { key: "scope2", icon: "🎯", labelKey: "sens_2x" },
+  { key: "scope3", icon: "🎯", labelKey: "sens_3x" },
+  { key: "scope4", icon: "🔭", labelKey: "sens_4x" },
+  { key: "scope6", icon: "🔭", labelKey: "sens_6x" },
+  { key: "scope8", icon: "🔭", labelKey: "sens_8x" },
+];
+
+const cl = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+// ═══════════════════════════════════════════════════════════════
+//  TARGET VALUES — القيم المستهدفة النهائية
+//  هذه هي القيم التي يجب أن يخرجها المحرك لـ:
+//    Balanced profile, 4 Fingers, 120Hz phone, AR weapon
+//  أي تعديل يكون +/- حول هذه القيم
+// ═══════════════════════════════════════════════════════════════
+const TARGET = {
+  cam: {
+    tpp: 130, fpp: 120, noScope: 100,
+    red: 55, scope2: 42, scope3: 33,
+    scope4: 26, scope6: 14, scope8: 9,
+  },
+  ads: {
+    tpp: 105, fpp: 102, noScope: 130,
+    red: 60, scope2: 45, scope3: 30,
+    scope4: 22, scope6: 15, scope8: 10,
+  },
+  gyro: {
+    tpp: 250, fpp: 240, noScope: 220,
+    red: 200, scope2: 170, scope3: 130,
+    scope4: 100, scope6: 55, scope8: 30,
+  },
+  gyroAds: {
+    tpp: 280, fpp: 270, noScope: 260,
+    red: 240, scope2: 200, scope3: 160,
+    scope4: 120, scope6: 65, scope8: 40,
+  },
 };
 
-// ── ADS (0-300) — دقة الهيدشوت ──────────────────────────────
-const ADS_BASE: Record<string, number> = {
-  tppNoScope: 130,  // hip-fire precision
-  fppNoScope: 115,  // FPP hip-fire
-  redDot:      32,  // HEADSHOT precision
-  "2x":        26,  // mid precision
-  "3x":        20,  // mid-long precision
-  "4x":        16,  // long precision
-  "6x":        12,  // sniper precision
-  "8x":         8,  // extreme precision
-};
-
-// ── Gyro Camera (0-400) — تتبع بالجايرو ─────────────────────
-const GYRO_CAM_BASE: Record<string, number> = {
-  tppNoScope: 350,
-  fppNoScope: 350,
-  redDot:     330,
-  "2x":       300,
-  "3x":       270,
-  "4x":       230,
-  "6x":       170,
-  "8x":       120,
-};
-
-// ── Gyro ADS (0-400) — مقاومة الارتداد (السر الرئيسي) ────────
-const GYRO_ADS_BASE: Record<string, number> = {
-  tppNoScope: 380,
-  fppNoScope: 380,
-  redDot:     370,  // ZERO RECOIL secret
-  "2x":       350,
-  "3x":       320,
-  "4x":       270,
-  "6x":       200,
-  "8x":       140,
-};
-
 // ═══════════════════════════════════════════════════════════════
-// DEVICE FACTOR (0.75 – 1.30)
+//  DEVICE OFFSET — تعديل إضافي (+/-) بدل مضاعف تراكمي
 // ═══════════════════════════════════════════════════════════════
-function deviceFactor(d: Device): number {
-  let f = 1.0;
+function deviceOffset(device: Device) {
+  // كل عامل يعطي offset صغير يُضاف/يُطرح من القيمة المستهدفة
+  // بدل ما يُضرب ويغيّر القيمة بشكل كبير
 
-  // FPS — higher FPS = smoother = can push higher
-  if (d.fps >= 185) f *= 1.12;      // Red Magic tier
-  else if (d.fps >= 165) f *= 1.08;  // ROG Phone tier
-  else if (d.fps >= 144) f *= 1.05;  // high-end gaming
-  else if (d.fps >= 120) f *= 1.02;  // standard high-end
-  else if (d.fps >= 90) f *= 1.00;   // mid-range
-  else if (d.fps >= 60) f *= 0.90;   // low-end
-  else f *= 0.82;                     // very low
+  // FPS: أعلى = أدق = نخفض قليل
+  const fpsOff =
+    device.fps >= 165 ? -0.06 :
+    device.fps >= 144 ? -0.04 :
+    device.fps >= 120 ? -0.02 :
+    device.fps >= 90  ?  0.00 :
+    device.fps >= 60  ?  0.00 : 0.04;
 
-  // Touch rate — higher = more responsive
-  if (d.touchRate >= 960) f *= 1.06;  // Red Magic
-  else if (d.touchRate >= 720) f *= 1.04;  // ROG
-  else if (d.touchRate >= 480) f *= 1.02;  // high-end
-  else if (d.touchRate >= 240) f *= 1.00;  // standard
-  else if (d.touchRate >= 120) f *= 0.96;  // low-end
-  else f *= 0.92;                          // very low
+  // Touch: أعلى = أدق
+  const touchOff =
+    device.touchRate >= 720 ? -0.03 :
+    device.touchRate >= 480 ? -0.02 :
+    device.touchRate >= 240 ?  0.00 :
+    0.02;
 
-  // Screen size — larger = need lower sens
-  if (d.screenSize >= 14) f *= 0.82;  // large tablet
-  else if (d.screenSize >= 12) f *= 0.88;  // 11-12" tablet
-  else if (d.screenSize >= 10) f *= 0.93;  // 10" tablet
-  else if (d.screenSize >= 8) f *= 0.97;   // iPad Mini
-  else if (d.screenSize >= 6.7) f *= 1.00; // standard phone
-  else if (d.screenSize >= 6.0) f *= 1.04; // compact phone
-  else f *= 1.08;                           // small phone
+  // شاشة: أكبر = أكثر حساسية مطلوبة
+  const screenOff =
+    device.screenSize >= 13  ?  0.18 :
+    device.screenSize >= 11  ?  0.12 :
+    device.screenSize >= 8   ?  0.04 :
+    device.screenSize >= 6.5 ?  0.00 : -0.03;
 
-  // Gyro quality
-  if (d.gyroQuality === "excellent") f *= 1.00;
-  else if (d.gyroQuality === "good") f *= 0.95;
-  else f *= 0.88;
+  // Gyro hardware
+  const gyroOff =
+    device.gyroQuality === "excellent" ?  0.00 :
+    device.gyroQuality === "good"      ? -0.08 : -0.18;
 
-  return Math.max(0.75, Math.min(1.30, f));
+  return {
+    camOff: fpsOff + touchOff + screenOff,
+    adsOff: fpsOff + touchOff + screenOff,
+    gyroOff: fpsOff + touchOff + screenOff + gyroOff,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
-// WEAPON FACTOR — Detailed per weapon type
+//  FINGER OFFSET
 // ═══════════════════════════════════════════════════════════════
-function weaponCamAdsFactor(wp: WeaponProfile): number {
-  // Vertical recoil — THE main factor
-  // M416=50→1.0, AKM=76→0.85, UMP45=30→1.12
-  const vR = 1.0 - ((wp.verticalRecoil - 50) / 100) * 0.35;
-
-  // Horizontal recoil — affects tracking
-  const hR = 1.0 - ((wp.horizontalRecoil - 28) / 100) * 0.15;
-
-  // First shot accuracy — reward low sens for headshots
-  const fsa = 1.0 - ((wp.firstShotAccuracy - 85) / 15) * 0.05;
-
-  // Fire rate — faster = need lower sens
-  const fr = wp.fireRate <= 60 ? 1.08     // bolt-action (AWM, Kar98k)
-    : wp.fireRate <= 100 ? 1.06           // semi-auto sniper
-    : wp.fireRate <= 350 ? 1.03           // DMR (Mini14, SKS)
-    : wp.fireRate <= 450 ? 1.02           // slow DMR (SLR, Mk14)
-    : wp.fireRate <= 600 ? 1.00           // slow AR (AKM)
-    : wp.fireRate <= 750 ? 0.98           // standard AR (M416)
-    : wp.fireRate <= 900 ? 0.96           // fast AR (Vector, JS9)
-    : 0.93;                                // ultra-fast (Uzi, MP9)
-
-  // Recovery — fast recovery = can use slightly higher
-  const rec = 1.0 + ((wp.recovery - 70) / 100) * 0.05;
-
-  return Math.max(0.70, Math.min(1.20, vR * hR * fsa * fr * rec));
-}
-
-function weaponGyroFactor(wp: WeaponProfile): number {
-  // For gyro: high recoil = MORE gyro to fight it
-  const vR = 1.0 + ((wp.verticalRecoil - 50) / 100) * 0.15;
-
-  // Bolt-action: much less gyro needed
-  const fr = wp.fireRate <= 60 ? 0.75     // bolt-action
-    : wp.fireRate <= 100 ? 0.82           // semi-auto
-    : wp.fireRate <= 350 ? 0.90           // DMR
-    : wp.fireRate <= 450 ? 0.93           // slow DMR
-    : wp.fireRate <= 600 ? 1.00           // slow AR
-    : wp.fireRate <= 750 ? 1.03           // standard AR
-    : wp.fireRate <= 900 ? 1.06           // fast AR
-    : 1.10;                                // ultra-fast
-
-  // Horizontal recoil makes gyro harder
-  const hR = 1.0 - ((wp.horizontalRecoil - 28) / 100) * 0.08;
-
-  return Math.max(0.65, Math.min(1.35, vR * fr * hR));
+function fingerOffset(fingers: number) {
+  switch (fingers) {
+    case 2: return { cam:  0.08, ads:  0.06, gyro: -0.12, gyroAds: -0.10 };
+    case 3: return { cam:  0.04, ads:  0.03, gyro: -0.06, gyroAds: -0.04 };
+    case 4: return { cam:  0.00, ads:  0.00, gyro:  0.00, gyroAds:  0.00 };
+    case 5: return { cam: -0.04, ads: -0.02, gyro:  0.04, gyroAds:  0.03 };
+    case 6: return { cam: -0.07, ads: -0.04, gyro:  0.07, gyroAds:  0.05 };
+    default: return { cam: 0, ads: 0, gyro: 0, gyroAds: 0 };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// FINGER FACTOR (0.80 – 1.20)
+//  WEAPON OFFSET — مختلف لكل نظام
 // ═══════════════════════════════════════════════════════════════
-function fingerFactor(n: number): number {
-  return ({
-    2: 0.80,  // thumbs only — lowest sens
-    3: 0.90,  // 3 fingers
-    4: 1.00,  // 4 fingers claw — standard
-    5: 1.10,  // 5 fingers
-    6: 1.20,  // 6 fingers — highest
-  })[n] ?? 1.0;
+function weaponOffset(type: string, recoil: number, _fireRate: number) {
+  const r = recoil / 100;
+
+  let cam = 0, ads = 0, gyro = 0, gyroAds = 0;
+
+  switch (type) {
+    case "ar":      cam =  0.00; ads =  0.00; gyro =  0.00; gyroAds =  0.00; break;
+    case "smg":     cam =  0.05; ads = -0.03; gyro =  0.08; gyroAds =  0.06; break;
+    // DMR و Sniper يتم التعامل معهم في sniperScopeOverride بشكل مستقل لكل سكوب
+    // هنا نضع offset صفري — الضبط الدقيق يحصل في المحرك الرئيسي
+    case "dmr":     cam =  0.00; ads =  0.00; gyro =  0.00; gyroAds =  0.00; break;
+    case "sniper":  cam =  0.00; ads =  0.00; gyro =  0.00; gyroAds =  0.00; break;
+    case "lmg":     cam =  0.00; ads =  0.04; gyro =  0.05; gyroAds =  0.04; break;
+    case "shotgun": cam =  0.08; ads =  0.00; gyro =  0.06; gyroAds =  0.03; break;
+    case "pistol":  cam =  0.06; ads = -0.02; gyro =  0.03; gyroAds =  0.00; break;
+  }
+
+  // recoil offset (full-auto فقط)
+  if (type !== "sniper" && type !== "dmr") {
+    const recoilAdj = (r - 0.5) * 0.15;
+    ads     += recoilAdj;
+    gyro    += recoilAdj * 1.5;
+    gyroAds += recoilAdj * 1.3;
+    cam     -= recoilAdj * 0.3;
+  }
+
+  return { cam, ads, gyro, gyroAds };
 }
 
 // ═══════════════════════════════════════════════════════════════
-// STYLE FACTOR (0.75 – 1.30)
+//  SNIPER PRECISION ENGINE — نظام مستقل لكل سكوب
+//
+//  القناصات مختلفة جذرياً عن أسلحة الرش:
+//  - طلقة واحدة: لا يوجد "تتبع ارتداد" — الأهم هو الدقة قبل الإطلاق
+//  - كل سكوب له ديناميكية مختلفة تماماً
+//  - 8x scope: 8.1× تكبير — 1 بكسل حركة = 8 بكسلات في عالم اللعبة
+//    لذلك يحتاج حساسية منخفضة جداً ومضبوطة بدقة
+//
+//  Bolt-Action (AWM, Kar98k, M24, Mosin):
+//    - طلقة واحدة ثم bolt cycle
+//    - الأولوية: دقة الطلقة الأولى + quickscope + flick shot
+//    - ADS أبطأ من Camera (ما تحتاج تتبع — تحتاج تثبت)
+//    - Gyro منخفض جداً (أي اهتزاز = miss)
+//
+//  DMR (Mini14, SKS, SLR, Mk14):
+//    - طلقات متتابعة semi-auto
+//    - الأولوية: vertical recoil recovery + follow-up shots
+//    - ADS أعلى من Bolt (تحتاج تتبع الارتداد بين الطلقات)
+//    - Gyro أعلى من Bolt (يساعد في إرجاع الكروسهير بعد كل طلقة)
 // ═══════════════════════════════════════════════════════════════
-function styleFactor(s: PlayStyle): number {
-  return ({
-    sniper:      0.75,  // lowest — pixel-perfect
-    defensive:   0.82,  // low — angle holding
-    headshot:    0.85,  // low — first-shot accuracy
-    competitive: 0.92,  // tournament
-    balanced:    1.00,
-    hybrid:      1.00,
-    spray:       1.06,  // spray transfer
-    pro:         1.10,
-    aggressive:  1.18,
-    rush:        1.30,  // highest — CQC domination
-  })[s] ?? 1.0;
+
+type SniperOverride = { cam: number; ads: number; gyro: number; gyroAds: number } | null;
+
+function sniperScopeOverride(
+  weaponType: string,
+  row: keyof ScopeSens,
+): SniperOverride {
+  if (weaponType !== "sniper" && weaponType !== "dmr") return null;
+
+  const isBolt = weaponType === "sniper";
+
+  // TPP/FPP: القناصة ما تحتاج TPP/FPP مختلف كثير
+  // بس أبطأ شوي من AR عشان ما تطير الكاميرا لما تفتح السكوب
+  if (row === "tpp" || row === "fpp") {
+    return isBolt
+      ? { cam: -0.04, ads: -0.06, gyro: -0.08, gyroAds: -0.08 }
+      : { cam: -0.02, ads: -0.03, gyro: -0.05, gyroAds: -0.05 };
+  }
+
+  // NoScope: hip-fire قريب — quickscope
+  if (row === "noScope") {
+    return isBolt
+      ? { cam:  0.00, ads: -0.10, gyro: -0.12, gyroAds: -0.10 }  // Bolt: أبطأ — دقة الطلقة الأولى
+      : { cam:  0.00, ads: -0.05, gyro: -0.08, gyroAds: -0.06 }; // DMR: أسرع شوي — follow-up
+  }
+
+  // ═══ SCOPED — هنا الضبط الدقيق الحقيقي ═══
+  //
+  // الفلسفة:
+  //   Camera: يتحكم بسرعة المسح (scanning) — يحتاج يكون بطيء بما يكفي
+  //           عشان تقدر توقف على الرأس بدون ما تتجاوزه (zero over-drag)
+  //           لكن سريع بما يكفي عشان تلحق هدف يتحرك (zero under-drag)
+  //
+  //   ADS:    للقناصات bolt-action: أبطأ من Camera!
+  //           لأنك ما تحتاج تتبع ارتداد — تحتاج تثبّت قبل الطلقة
+  //           لحظة الضغط على fire = لازم يكون ثابت 100%
+  //           للـ DMR: أعلى من Camera — عشان تتبع الارتداد العمودي
+  //
+  //   Gyro:   منخفض جداً — أي ميلان صغير على 6x/8x = حركة ضخمة
+  //           على 8x: 1° ميلان = ~40 بكسل حركة (مع zoom 8.1×)
+  //           لازم يكون منخفض بما يكفي عشان إيدك ما تهتز
+  //           لكن عالي بما يكفي عشان تقدر تعدّل micro-adjustments
+  //
+  //   GyroADS: أبطأ من Gyro Camera — ثبات أقصى لحظة الإطلاق
+
+  // مصفوفة القيم لكل سكوب — كل سطر مستقل تماماً
+  // [cam_offset, ads_offset, gyro_offset, gyroAds_offset]
+  const BOLT_SCOPES: Record<string, [number, number, number, number]> = {
+    //                   cam     ads     gyro    gyroAds
+    red:     [          -0.10,  -0.18,  -0.20,  -0.22   ],  // Quickscope CQC — أبطأ بقليل
+    scope2:  [          -0.12,  -0.20,  -0.28,  -0.30   ],  // قريب-متوسط
+    scope3:  [          -0.15,  -0.24,  -0.35,  -0.38   ],  // متوسط — دقة flick
+    scope4:  [          -0.18,  -0.28,  -0.42,  -0.45   ],  // المسافة الذهبية
+    scope6:  [          -0.22,  -0.35,  -0.52,  -0.55   ],  // بعيد — ثبات عالي
+    scope8:  [          -0.28,  -0.42,  -0.62,  -0.65   ],  // أبعد — pixel precision
+  };
+
+  const DMR_SCOPES: Record<string, [number, number, number, number]> = {
+    //                   cam     ads     gyro    gyroAds
+    red:     [          -0.06,  -0.04,  -0.12,  -0.10   ],  // CQC tap — أسرع من bolt
+    scope2:  [          -0.08,  -0.06,  -0.18,  -0.15   ],
+    scope3:  [          -0.10,  -0.08,  -0.24,  -0.20   ],  // mid-range tap
+    scope4:  [          -0.12,  -0.10,  -0.30,  -0.26   ],  // standard DMR range
+    scope6:  [          -0.16,  -0.14,  -0.40,  -0.35   ],  // long-range tap
+    scope8:  [          -0.20,  -0.18,  -0.50,  -0.45   ],  // extreme range
+  };
+
+  const table = isBolt ? BOLT_SCOPES : DMR_SCOPES;
+  const entry = table[row];
+  if (!entry) return null;
+
+  return { cam: entry[0], ads: entry[1], gyro: entry[2], gyroAds: entry[3] };
 }
 
 // ═══════════════════════════════════════════════════════════════
-// GYRO MODE
+//  PROFILE OFFSET — كل بروفايل يعدّل كل scope
 // ═══════════════════════════════════════════════════════════════
-function gyroActive(mode: GyroMode, key: string): boolean {
-  if (mode === "off") return false;
-  if (mode === "always") return true;
-  return key !== "tppNoScope" && key !== "fppNoScope";
+function profileOffset(profile: (typeof PRO_PROFILES)[0], row: keyof ScopeSens) {
+  // sensMultiplier: 1.0 = baseline. كل 0.01 فوق/تحت = ~1% تعديل
+  const baseOff = profile.sensMultiplier - 1.0;
+
+  if (row === "tpp") {
+    const off = (profile.tppMultiplier - 1.0);
+    return { cam: off + baseOff, ads: off + baseOff, gyro: baseOff, gyroAds: baseOff };
+  }
+  if (row === "fpp") {
+    const off = (profile.fppMultiplier - 1.0);
+    return { cam: off + baseOff, ads: off + baseOff, gyro: baseOff, gyroAds: baseOff };
+  }
+
+  const scopeMap: Record<string, number> = {
+    noScope: profile.redDotMultiplier, red: profile.redDotMultiplier,
+    scope2: profile.scope2Multiplier, scope3: profile.scope3Multiplier,
+    scope4: profile.scope4Multiplier, scope6: profile.scope6Multiplier,
+    scope8: profile.scope8Multiplier,
+  };
+  const scopeOff = (scopeMap[row] ?? 1.0) - 1.0;
+  const adsOff = profile.adsMultiplier - 1.0;
+  const gyroOff = profile.gyroMultiplier - 1.0;
+
+  return {
+    cam: scopeOff + baseOff,
+    ads: scopeOff + adsOff + baseOff,
+    gyro: gyroOff + baseOff,
+    gyroAds: gyroOff + adsOff + baseOff,
+  };
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.round(Math.max(lo, Math.min(hi, v)));
-}
-
 // ═══════════════════════════════════════════════════════════════
-// MAIN COMPUTATION — Hacker Level
+//  MAIN ENGINE
 // ═══════════════════════════════════════════════════════════════
-export function computeSensitivity(params: SensitivityParams): SensitivityResult {
-  const { device, weapon, gyroMode, profile, fingers, styleId } = params;
+export function computeSensitivity(p: SensParams): Sens {
+  const { device, fingers, gyroMode, weaponName, weaponRecoil, weaponRange, weaponType, proProfile } = p;
 
-  const wp = getWeaponProfile(weapon.name, weapon.recoil, weapon.range, weapon.type);
+  const profile = PRO_PROFILES.find(x => x.id === (proProfile as ProProfileId)) ?? PRO_PROFILES[0];
+  const wp = getWeaponProfile(weaponName, weaponRecoil, weaponRange, weaponType);
 
-  const dF  = deviceFactor(device);
-  const wCA = weaponCamAdsFactor(wp);
-  const wG  = weaponGyroFactor(wp);
-  const fF  = fingerFactor(fingers);
-  const sF  = styleFactor(styleId);
-  const pM  = profile.sensMultiplier;
+  const dev = deviceOffset(device);
+  const fin = fingerOffset(fingers);
+  const wpn = weaponOffset(wp.type, wp.verticalRecoil, wp.fireRate);
 
-  const gQ = device.gyroQuality === "excellent" ? 1.00
-    : device.gyroQuality === "good" ? 0.94
-    : 0.86;
+  const cam     = {} as Record<keyof ScopeSens, number>;
+  const ads     = {} as Record<keyof ScopeSens, number>;
+  const gyroCam = {} as Record<keyof ScopeSens, number>;
+  const gyroAds = {} as Record<keyof ScopeSens, number>;
 
-  const cam: Record<string, number> = {};
-  const ads: Record<string, number> = {};
-  const gyroCam: Record<string, number> = {};
-  const gyroAds: Record<string, number> = {};
+  for (const row of ROWS) {
+    const pro = profileOffset(profile, row);
 
-  for (const row of PUBG_ROWS) {
-    // Camera = 180° tracking (weapon has small effect)
-    cam[row.key] = clamp(CAM_BASE[row.key] * dF * fF * sF * pM, 1, MAX_CAM);
+    // Sniper/DMR: override مستقل لكل سكوب
+    const sniperOvr = sniperScopeOverride(wp.type, row);
 
-    // ADS = headshot precision (weapon has FULL effect)
-    ads[row.key] = clamp(ADS_BASE[row.key] * dF * wCA * fF * sF * pM, 1, MAX_CAM);
+    // Total offset = device + fingers + weapon + profile + sniper override
+    const sniperCam     = sniperOvr?.cam     ?? 0;
+    const sniperAds     = sniperOvr?.ads     ?? 0;
+    const sniperGyro    = sniperOvr?.gyro    ?? 0;
+    const sniperGyroAds = sniperOvr?.gyroAds ?? 0;
 
-    // Gyro
-    if (!gyroActive(gyroMode, row.key)) {
-      gyroCam[row.key] = 0;
-      gyroAds[row.key] = 0;
+    const camTotal     = dev.camOff  + fin.cam     + wpn.cam     + pro.cam     + sniperCam;
+    const adsTotal     = dev.adsOff  + fin.ads     + wpn.ads     + pro.ads     + sniperAds;
+    const gyroTotal    = dev.gyroOff + fin.gyro    + wpn.gyro    + pro.gyro    + sniperGyro;
+    const gyroAdsTotal = dev.gyroOff + fin.gyroAds + wpn.gyroAds + pro.gyroAds + sniperGyroAds;
+
+    // القيمة النهائية = القيمة المستهدفة × (1 + مجموع التعديلات)
+    cam[row] = cl(Math.round(TARGET.cam[row] * (1 + camTotal)), 1, 300);
+    ads[row] = cl(Math.round(TARGET.ads[row] * (1 + adsTotal)), 1, 300);
+
+    if (gyroMode === "off" || (gyroMode === "scope" && HIPFIRE.includes(row))) {
+      gyroCam[row] = 0;
+      gyroAds[row] = 0;
     } else {
-      gyroCam[row.key] = clamp(GYRO_CAM_BASE[row.key] * dF * fF * sF * pM * gQ, 1, MAX_GYRO);
-      gyroAds[row.key] = clamp(GYRO_ADS_BASE[row.key] * dF * fF * sF * pM * gQ * wG, 1, MAX_GYRO);
+      gyroCam[row] = cl(Math.round(TARGET.gyro[row]    * (1 + gyroTotal)),    1, 400);
+      gyroAds[row] = cl(Math.round(TARGET.gyroAds[row] * (1 + gyroAdsTotal)), 1, 400);
     }
   }
 
-  // Free Look
-  const flMul = dF * fF * sF * pM;
+  // ═══ FREE LOOK ═══
+  // Vehicle: بروفايلات عدوانية/مخصصة تحتاج free look أعلى بكثير
+  //          عشان تقدر تطلّع على الأعداء أثناء القيادة + تطلق من السيارة
+  const vehicleBoost =
+    profile.isCustom ? 1.40 :                    // ALYAZOURI PRO: أعلى شي — ملك السيارات
+    profile.category === "aggressive" ? 1.25 :   // عدواني: يحتاج يطلّع بسرعة
+    1.15;                                        // عادي
+
   const freeLook = {
-    cam:       clamp(120 * flMul, 1, MAX_FREE),
-    parashoot: clamp(100 * flMul, 1, MAX_FREE),
-    vehicle:   clamp(80 * flMul, 1, MAX_FREE),
+    cam:       cl(Math.round(cam.tpp * 1.05), 1, 300),
+    parashoot: cl(Math.round(cam.tpp * 1.20), 1, 300),
+    vehicle:   cl(Math.round(cam.tpp * vehicleBoost), 1, 300),
   };
 
-  // AI Score
-  const dScore  = Math.min(25, (dF / 1.30) * 25);
-  const wScore  = Math.min(25, (wCA / 1.20) * 25);
-  const fScore  = Math.min(20, (fF / 1.20) * 20);
-  const sScore  = Math.min(15, (sF / 1.30) * 15);
-  const pScore  = Math.min(15, (pM / 1.30) * 15);
-  const aiScore = clamp(dScore + wScore + fScore + sScore + pScore, 0, 100);
+  // ═══ GAMEPLAY ═══
+  const camNorm = cl(cam.tpp / 200, 0, 1);
+  const sprintSensitivity = cl(Math.round(85 + (1 - camNorm) * 12 + (device.screenSize >= 11 ? -3 : 0) + (fingers >= 5 ? -1 : fingers <= 2 ? 2 : 0)), 75, 100);
+  const joystickSize = cl((device.screenSize >= 13 ? 100 : device.screenSize >= 11 ? 95 : device.screenSize >= 8 ? 85 : device.screenSize >= 6.5 ? 78 : 72) + (fingers >= 6 ? -10 : fingers >= 5 ? -5 : 0) + Math.round((1 - camNorm) * 5), 50, 120);
+  const tppFOV = cl(Math.round(83 + camNorm * 5 + (fingers >= 5 ? 1.5 : 0.5) + (device.screenSize >= 11 ? -1 : 0.5)), 80, 90);
+  const fppFOV = cl(Math.round(88 + camNorm * 10 + (fingers >= 5 ? 3 : 1.5) + (device.screenSize >= 11 ? -2 : 1)), 80, 103);
+
+  // ═══ AI SCORE ═══
+  const devScore = 1.0 + dev.camOff;
+  const aiScore = cl(Math.round(
+    (devScore * 0.22 + (1 - wp.verticalRecoil / 200) * 0.18 + (fingers / 7) * 0.20
+    + ((profile.recoilControl + profile.tracking) / 220) * 0.22
+    + (gyroMode === "off" ? 0.4 : device.gyroQuality === "excellent" ? 1 : device.gyroQuality === "good" ? 0.75 : 0.5) * 0.18
+    + (profile.isCustom ? 0.04 : 0)) * 100
+  ), 1, 100);
 
   return {
-    cam, ads,
-    gyro: { cam: gyroCam, ads: gyroAds },
-    freeLook, aiScore,
-    factors: { deviceFactor: dF, weaponFactor: wCA, fingerFactor: fF, styleFactor: sF },
+    cam: cam as ScopeSens, ads: ads as ScopeSens,
+    gyro: { cam: gyroCam as ScopeSens, ads: gyroAds as ScopeSens },
+    freeLook,
+    gameplay: { sprintSensitivity, joystickSize, tppFOV, fppFOV },
+    aiScore,
+    factors: {
+      deviceFactor: 1.0 + dev.camOff,
+      weaponFactor: cl((100 - wp.verticalRecoil * 0.5) / 100, 0.4, 1),
+      fingerFactor: 1.0 + fin.cam,
+      profileFactor: profile.sensMultiplier,
+    },
   };
 }
 
-export function sensVal(obj: Record<string, number>, key: string): number {
-  return obj[key] ?? 0;
+// ═══════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════
+export function SensTable({ title, icon, data, max, accent = "text-orange-300", barClass = "from-orange-500 to-amber-400" }: {
+  title: string; icon: string; data: ScopeSens; max: number; accent?: string; barClass?: string;
+}) {
+  const { lang } = useLang();
+  return (
+    <div className="card rounded-2xl p-4">
+      <div className={`mb-3 flex items-center gap-2 text-sm font-bold ${accent}`}>
+        <span>{icon}</span><span>{title}</span>
+      </div>
+      <div className="space-y-2">
+        {SCOPE_DEFS.map(r => {
+          const v = (data as Record<string, number>)[r.key] ?? 0;
+          const off = v <= 0;
+          const pct = off ? 0 : Math.round(v / max * 100);
+          return (
+            <div key={r.key} className="flex items-center gap-2">
+              <span className="w-6 text-center text-sm">{r.icon}</span>
+              <span className="w-16 text-xs text-white/60">{t(r.labelKey as never, lang)}</span>
+              <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                <div className={`h-full bg-gradient-to-r ${barClass} stat-bar`} style={{ width: `${pct}%` }} />
+              </div>
+              <span className={`w-12 text-right text-xs font-bold ${off ? "text-white/30" : accent}`}>
+                {off ? "—" : `${v}%`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
-export type ProPlayerMatch = {
-  player: { name: string; flag: string; fingers: number; gyro: string; weapon: string; device: string };
-  similarity: number;
-};
-
-export function findClosestPros(
-  _device: Device, styleId: PlayStyle, _fingers: number
-): ProPlayerMatch[] {
-  const profile = PRO_PROFILES.find((p) => p.id === styleId);
-  if (!profile) return [];
-  const pros = [
-    { name: "Jonathan Gaming", flag: "🇮🇳", fingers: 4, gyro: "always", weapon: "M416", device: "iPhone 15 Pro Max", similarity: 0.92 },
-    { name: "ScoutOP",         flag: "🇮🇳", fingers: 4, gyro: "scope",  weapon: "M416", device: "iPad Pro M2",       similarity: 0.88 },
-    { name: "Levinho",         flag: "🇧🇷", fingers: 4, gyro: "always", weapon: "M416", device: "ROG Phone 8 Pro",   similarity: 0.85 },
-    { name: "Mortal",          flag: "🇮🇳", fingers: 4, gyro: "always", weapon: "AKM",  device: "iPhone 14 Pro Max", similarity: 0.82 },
-    { name: "Athena Gaming",   flag: "🇮🇳", fingers: 4, gyro: "always", weapon: "M416", device: "iPhone 14 Pro Max", similarity: 0.80 },
+export function FactorsCard({ factors }: { factors: Sens["factors"] }) {
+  const { lang } = useLang();
+  const items = [
+    { k: "D", label: t("stability_device", lang), v: factors.deviceFactor, color: "text-orange-300" },
+    { k: "W", label: t("stability_weapon", lang), v: factors.weaponFactor, color: "text-amber-300" },
+    { k: "F", label: t("stability_fingers", lang), v: factors.fingerFactor, color: "text-emerald-300" },
+    { k: "P", label: lang === "ar" ? "البروفايل" : "Profile", v: factors.profileFactor, color: "text-sky-300" },
   ];
-  return [...pros].sort((a, b) => b.similarity - a.similarity).slice(0, 3)
-    .map((p) => ({ player: p, similarity: p.similarity }));
+  return (
+    <div className="grid grid-cols-4 gap-2">
+      {items.map(it => (
+        <div key={it.k} className="card rounded-xl p-3 text-center">
+          <div className={`font-display text-lg font-bold ${it.color}`}>{it.k}</div>
+          <div className="text-[10px] text-white/50">{it.label}</div>
+          <div className="mt-1 text-sm font-bold text-white">{(it.v * 100).toFixed(0)}%</div>
+        </div>
+      ))}
+    </div>
+  );
 }

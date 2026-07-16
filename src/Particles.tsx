@@ -6,7 +6,6 @@ export function Particles() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
 
@@ -16,53 +15,36 @@ export function Particles() {
     canvas.height = H;
 
     const gold = ["#ffd166", "#ffb347", "#ff9a3c", "#ffe08a", "#ffcb6b", "#ff7a00", "#ffefc4"];
-
-    type Dot = {
-      x: number;
-      y: number;
-      r: number;
-      vy: number;
-      vx: number;
-      a: number;
-      t: number;
-      c: string;
-    };
-
+    type D = { x: number; y: number; r: number; vy: number; vx: number; a: number; t: number; c: string };
     const count = Math.min(60, Math.floor((W * H) / 28000));
-    const dots: Dot[] = [];
+    const dots: D[] = [];
 
     for (let i = 0; i < count; i++) {
       dots.push({
         x: Math.random() * W,
         y: Math.random() * H,
-        r: Math.random() * 1.5 + 0.5,
-        vy: (Math.random() - 0.5) * 0.3,
+        r: 1 + Math.random() * 2.5,
+        vy: 0.15 + Math.random() * 0.35,
         vx: (Math.random() - 0.5) * 0.2,
-        a: Math.random() * 0.5 + 0.2,
+        a: 0.3 + Math.random() * 0.5,
         t: Math.random() * Math.PI * 2,
         c: gold[Math.floor(Math.random() * gold.length)],
       });
     }
 
+    let raf = 0;
     let f = 0;
-    let raf: number;
 
     const loop = () => {
       f++;
       ctx.clearRect(0, 0, W, H);
-
       for (const d of dots) {
         d.y += d.vy;
         d.x += d.vx + Math.sin(d.t + f * 0.008) * 0.1;
         d.t += 0.014;
-
-        if (d.y > H + 8) {
-          d.y = -8;
-          d.x = Math.random() * W;
-        }
-        if (d.x > W + 8) d.x = -8;
+        if (d.y > H + 10) { d.y = -10; d.x = Math.random() * W; }
         if (d.x < -8) d.x = W + 8;
-
+        if (d.x > W + 8) d.x = -8;
         ctx.globalAlpha = d.a * (0.5 + Math.abs(Math.sin(d.t)) * 0.5);
         ctx.fillStyle = d.c;
         ctx.shadowBlur = 6;
@@ -71,7 +53,6 @@ export function Particles() {
         ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
         ctx.fill();
       }
-
       ctx.shadowBlur = 0;
       raf = requestAnimationFrame(loop);
     };
@@ -82,7 +63,6 @@ export function Particles() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     };
-
     window.addEventListener("resize", rs);
 
     return () => {
@@ -92,34 +72,27 @@ export function Particles() {
   }, []);
 
   return (
-    <>
-      {/* Golden Eagle SVG — majestic backdrop */}
+    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+      {/* Golden Eagle SVG */}
       <svg
-        className="fixed inset-0 -z-10 h-full w-full opacity-5"
-        viewBox="0 0 1440 900"
-        preserveAspectRatio="none"
+        viewBox="0 0 200 200"
+        className="absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 opacity-[0.03]"
+        style={{ animation: "eagleFloat 8s ease-in-out infinite" }}
       >
         <path
-          d="M0 450 C 200 200, 400 600, 720 450 S 1240 200, 1440 450"
-          stroke="url(#eagleGrad)"
-          strokeWidth="1"
-          fill="none"
-          opacity="0.3"
+          fill="url(#eagleGrad)"
+          d="M100 20 L120 60 L180 70 L130 100 L150 170 L100 130 L50 170 L70 100 L20 70 L80 60 Z"
         />
         <defs>
           <linearGradient id="eagleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#ff7a00" stopOpacity="0.6" />
-            <stop offset="100%" stopColor="#ffd166" stopOpacity="0.2" />
+            <stop offset="0%" stopColor="#ffd166" />
+            <stop offset="50%" stopColor="#ff7a00" />
+            <stop offset="100%" stopColor="#ff4500" />
           </linearGradient>
         </defs>
       </svg>
-      
       {/* Floating gold dust canvas */}
-      <canvas
-        ref={canvasRef}
-        className="fixed inset-0 -z-10 h-full w-full"
-        style={{ pointerEvents: "none" }}
-      />
-    </>
+      <canvas ref={canvasRef} className="absolute inset-0" />
+    </div>
   );
 }

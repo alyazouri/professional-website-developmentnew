@@ -1,1113 +1,832 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLang } from "./LanguageContext";
 import { t } from "./i18n";
-import { Particles } from "./Particles";
+import { BRANDS, WEAPONS, SERVERS, PRO_PROFILES, FINGERS, type Device, type ProProfileId } from "./data";
+import { computeSensitivity, SensTable, FactorsCard, type SensParams } from "./sensitivity";
 import { StatusBar } from "./StatusBar";
 import { Hero } from "./Hero";
-import { RatingSection, ShareButton, AIPredictions } from "./Features";
-
+import { Particles } from "./Particles";
 import { PingMonitor } from "./PingMonitor";
 import { PacSection } from "./PacSection";
-
-import { TouchTest } from "./TouchTest";
 import { QuickSearch } from "./QuickSearch";
-
-import { MusicPlayer } from "./MusicPlayer";
+import { RatingSection, RevealSection } from "./Features";
 import { PWABanner } from "./PWABanner";
-import { BRANDS, WEAPONS, PRO_PROFILES, FINGERS, gyroModes, PUBG_ROWS } from "./data";
-import { computeSensitivity, findClosestPros, sensVal } from "./sensitivity";
-import type { Device, Weapon, DeviceBrand, WeaponCategory, ProProfile } from "./data";
-import type { GyroMode, PlayStyle, SensitivityParams, SensitivityResult } from "./sensitivity";
+import { MusicPlayer } from "./MusicPlayer";
+import { HudPreview } from "./HudPreview";
+import { AIPredictions } from "./AIPredictions";
+import { NetworkHeatmap } from "./NetworkHeatmap";
+import { DnsMonitor } from "./DnsMonitor";
+import { SensCode } from "./SensCode";
+import { SmartTips } from "./SmartTips";
+import { ExportPdfButton } from "./ExportPdf";
+
+const PROFILES_KEY = "alyazouri_profiles_v2";
 
 type SavedProfile = {
+  id: string;
   name: string;
-  params: SensitivityParams;
-  savedAt: string;
+  savedAt: number;
+  params: SensParams;
 };
 
-const MAX_SAVED_PROFILES = 5;
+const gyroModes: Array<{ id: "off" | "scope" | "always"; icon: string; labelAr: string; labelEn: string }> = [
+  { id: "off", icon: "⭕", labelAr: "معطل", labelEn: "Off" },
+  { id: "scope", icon: "🎯", labelAr: "سكوب فقط", labelEn: "Scope Only" },
+  { id: "always", icon: "🔄", labelAr: "دائماً", labelEn: "Always On" },
+];
 
-function App() {
+// Group profiles by category
+const profileCategories = [
+  { id: "custom", nameAr: "⭐ مخصص", nameEn: "⭐ Custom" },
+  { id: "general", nameAr: "عام", nameEn: "General" },
+  { id: "aggressive", nameAr: "عدواني", nameEn: "Aggressive" },
+  { id: "tactical", nameAr: "تكتيكي", nameEn: "Tactical" },
+  { id: "specialist", nameAr: "متخصص", nameEn: "Specialist" },
+];
+
+export default function App() {
   const { lang } = useLang();
   const isAr = lang === "ar";
 
-  // State for device selection
-  const [selectedBrand, setSelectedBrand] = useState<DeviceBrand | null>(BRANDS[0]);
-  const [selectedDeviceIndex, setSelectedDeviceIndex] = useState(0);
-  const [deviceSearch, setDeviceSearch] = useState("");
-
-  // State for gyro mode
-  const [gyroMode, setGyroMode] = useState<GyroMode>("scope");
-
-  // State for pro profile
-  const [selectedProfile, setSelectedProfile] = useState<ProProfile | null>(PRO_PROFILES[0]);
-
-  // State for fingers
-  const [fingers, setFingers] = useState(4);
-
-  // Play style is now determined by pro profile
-  const playStyleId: PlayStyle = selectedProfile?.id as PlayStyle || "balanced";
-
-  // State for weapon
-  const [selectedWeaponCategory, setSelectedWeaponCategory] = useState<WeaponCategory | null>(WEAPONS[0]);
-  const [selectedWeaponIndex, setSelectedWeaponIndex] = useState(0);
-  const [showWeaponDropdown, setShowWeaponDropdown] = useState(false);
-  const [showWeaponModelDropdown, setShowWeaponModelDropdown] = useState(false);
-
-  // State for sensitivity results
-  const [sens, setSens] = useState<SensitivityResult | null>(null);
-
-  // State for ping
   const [ping, setPing] = useState<number | null>(null);
+  const [brandId, setBrandId] = useState(BRANDS[0].id);
+  const [device, setDevice] = useState<Device>(BRANDS[0].devices[0]);
+  const [gyroMode, setGyroMode] = useState<"off" | "scope" | "always">("scope");
+  const [proProfile, setProProfile] = useState<ProProfileId>("alyazouri_pro");
+  const [fingers, setFingers] = useState(4);
+  const [weaponCatId, setWeaponCatId] = useState(WEAPONS[0].id);
+  const [weapon, setWeapon] = useState(WEAPONS[0].weapons[0]);
+  const [copied, setCopied] = useState(false);
+  const [activeCategory, setActiveCategory] = useState("custom");
 
-  // State for saved profiles
-  const [profiles, setProfiles] = useState<SavedProfile[]>([]);
-  const [justSaved, setJustSaved] = useState(false);
+  const [profiles, setProfiles] = useState<SavedProfile[]>(() => {
+    try { return JSON.parse(localStorage.getItem(PROFILES_KEY) || "[]"); } catch { return []; }
+  });
 
-  // State for scroll reveal (removed - not needed)
-
-  // Get current device
-  const currentDevice: Device | null = selectedBrand
-    ? selectedBrand.devices[selectedDeviceIndex]
-    : null;
-
-  // Get current weapon
-  const currentWeapon: Weapon | null = selectedWeaponCategory
-    ? selectedWeaponCategory.weapons[selectedWeaponIndex]
-    : null;
-
-  // Get current profile
-  const currentProfile: ProProfile | null = selectedProfile;
-
-  // Compute sensitivity whenever params change
+  // Live ping measurement on mount
   useEffect(() => {
-    if (currentDevice && currentWeapon && currentProfile) {
-      const params: SensitivityParams = {
-        device: currentDevice,
-        weapon: currentWeapon,
-        gyroMode,
-        profile: currentProfile,
-        fingers,
-        styleId: playStyleId,
-      };
-      const result = computeSensitivity(params);
-      setSens(result);
-    }
-  }, [currentDevice, currentWeapon, gyroMode, currentProfile, fingers, playStyleId]);
-
-  // Measure ping on mount
-  useEffect(() => {
-    // Import dynamically to avoid circular dependency
-    import("./PingMonitor").then(({ measurePing }) => {
-      // Measure ping to a test server
-      measurePing("https://www.google.com/favicon.ico", 5000).then((result) => {
-        setPing(result.latency);
-      });
-    });
-  }, []);
-
-  // Load saved profiles
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("sensitivity_profiles");
-      if (saved) {
-        setProfiles(JSON.parse(saved));
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  // Save profiles
-  const saveProfile = useCallback(() => {
-    if (!currentDevice || !currentWeapon || !currentProfile) return;
-
-    const newProfile: SavedProfile = {
-      name: `${currentDevice.name} - ${currentWeapon.name} - ${fingers}F`,
-      params: {
-        device: currentDevice,
-        weapon: currentWeapon,
-        gyroMode,
-        profile: currentProfile,
-        fingers,
-        styleId: playStyleId,
-      },
-      savedAt: new Date().toISOString(),
+    let done = false;
+    const start = performance.now();
+    const img = new Image();
+    const finish = (v: number) => { if (!done) { done = true; setPing(v); } };
+    const timer = setTimeout(() => finish(50), 3000);
+    img.onload = () => { clearTimeout(timer); finish(Math.max(8, Math.round(performance.now() - start))); };
+    img.onerror = () => {
+      clearTimeout(timer);
+      const ms = performance.now() - start;
+      finish(ms < 2800 ? Math.max(8, Math.round(ms)) : 50);
     };
+    img.src = `${SERVERS[0].probe}?_=${Date.now()}`;
+  }, []);
 
-    setProfiles((prev) => {
-      const updated = [newProfile, ...prev].slice(0, MAX_SAVED_PROFILES);
-      try {
-        localStorage.setItem("sensitivity_profiles", JSON.stringify(updated));
-      } catch { /* ignore */ }
-      return updated;
-    });
+  const sens = useMemo(() => computeSensitivity({
+    deviceId: `${brandId}|${device.name}`,
+    device, brandId,
+    fingers, gyroMode,
+    weaponId: weapon.name,
+    weaponName: weapon.name,
+    weaponRecoil: weapon.recoil,
+    weaponRange: weapon.range,
+    weaponType: weapon.type,
+    proProfile,
+  }), [device, fingers, gyroMode, weapon, proProfile, brandId]);
 
-    setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 2500);
-  }, [currentDevice, currentWeapon, currentProfile, gyroMode, fingers, playStyleId]);
+  const aiScore = sens.aiScore;
 
+  const currentProfile = PRO_PROFILES.find(p => p.id === proProfile) ?? PRO_PROFILES[0];
 
+  const gyroLabel = device.gyroQuality === "excellent" ? t("device_gyro_excellent", lang)
+    : device.gyroQuality === "good" ? t("device_gyro_good", lang) : t("device_gyro_average", lang);
 
-  // Handle device selection
-  const handleBrandSelect = (brand: DeviceBrand) => {
-    setSelectedBrand(brand);
-    setSelectedDeviceIndex(0);
+  const currentBrand = BRANDS.find((b) => b.id === brandId) ?? BRANDS[0];
+  const currentWeaponCat = WEAPONS.find((c) => c.id === weaponCatId) ?? WEAPONS[0];
+
+  const filteredProfiles = PRO_PROFILES.filter(p => p.category === activeCategory);
+
+  const onSearch = (r: { type: "device" | "weapon"; id: string; name: string }) => {
+    if (r.type === "device") {
+      const [bid, devName] = r.id.split("|");
+      const b = BRANDS.find((x) => x.id === bid);
+      const dev = b?.devices.find((d) => d.name === devName);
+      if (b && dev) { setBrandId(b.id); setDevice(dev); }
+    } else {
+      for (const c of WEAPONS) {
+        const w = c.weapons.find((x) => x.name === r.name);
+        if (w) { setWeaponCatId(c.id); setWeapon(w); break; }
+      }
+    }
   };
 
-  const handleDeviceSelect = (index: number) => {
-    setSelectedDeviceIndex(index);
+  const handleSave = () => {
+    const profile: SavedProfile = {
+      id: crypto.randomUUID?.() ?? String(Date.now()),
+      name: `${device.name} · ${weapon.name}`,
+      savedAt: Date.now(),
+      params: {
+        deviceId: `${brandId}|${device.name}`,
+        device, brandId,
+        fingers, gyroMode,
+        weaponId: weapon.name,
+        weaponName: weapon.name,
+        weaponRecoil: weapon.recoil,
+        weaponRange: weapon.range,
+        weaponType: weapon.type,
+        proProfile,
+      },
+    };
+    const next = [profile, ...profiles].slice(0, 5);
+    setProfiles(next);
+    try { localStorage.setItem(PROFILES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   };
 
-  // Handle weapon selection
-  const handleWeaponCategorySelect = (category: WeaponCategory) => {
-    setSelectedWeaponCategory(category);
-    setSelectedWeaponIndex(0);
-    setShowWeaponDropdown(false);
-    setShowWeaponModelDropdown(false);
+  const handleCopy = () => {
+    const text = [
+      `🎯 ALYAZOURI 2026 — ${device.name} · ${weapon.name}`,
+      `👤 Profile: ${currentProfile.name} | Fingers: ${fingers}F`,
+      `📷 Camera No-Scope: ${sens.cam.noScope}% | Red Dot: ${sens.cam.red}% | 4×: ${sens.cam.scope4}%`,
+      `🎯 ADS No-Scope: ${sens.ads.noScope}% | Red Dot: ${sens.ads.red}%`,
+      gyroMode !== "off" ? `🌀 Gyro: ${sens.gyro.cam.red}% (Red) | ${sens.gyro.cam.scope4}% (4×)` : "",
+      `🏆 AI Score: ${aiScore}/100`,
+    ].filter(Boolean).join("\n");
+    try { navigator.clipboard?.writeText(text); } catch { /* ignore */ }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
   };
-
-  const handleWeaponSelect = (index: number) => {
-    setSelectedWeaponIndex(index);
-    setShowWeaponModelDropdown(false);
-  };
-
-  // Handle profile selection
-  const handleProfileSelect = (profile: ProProfile) => {
-    setSelectedProfile(profile);
-  };
-
-
-
-  // Get PPI
-  const getPPI = (device: Device): number => {
-    const width = parseInt(device.resolution.split("×")[0] || "2400");
-    const height = parseInt(device.resolution.split("×")[1] || "1080");
-    const diagonal = Math.sqrt(width * width + height * height);
-    return Math.round((diagonal * 25.4) / device.screenSize);
-  };
-
-  // Get gyro label
-  const getGyroLabel = (device: Device): string => {
-    return device.gyroQuality === "excellent"
-      ? t("device_gyro_excellent", lang)
-      : device.gyroQuality === "good"
-      ? t("device_gyro_good", lang)
-      : t("device_gyro_average", lang);
-  };
-
-  if (!currentDevice || !currentWeapon || !currentProfile) {
-    return (
-      <>
-        <Particles />
-        <StatusBar ping={ping} />
-        <div className="min-h-screen pt-14">
-          <div className="container-section py-20">
-            <div className="text-center">
-              <div className="text-6xl">⚠️</div>
-              <h2 className="mt-4 font-display text-2xl font-bold text-white">
-                {isAr ? "جاري التحميل..." : "Loading..."}
-              </h2>
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
 
   return (
-    <>
+    <div className="relative min-h-screen">
       <Particles />
       <StatusBar ping={ping} />
-      
-      <main className="min-h-screen pt-14">
-        {/* Hero Section */}
-        <section id="top" className="container-section py-10">
-          <Hero ping={ping} />
-        </section>
+      <PWABanner />
+      <MusicPlayer />
 
-        {/* Generator Section */}
-        <section
-          id="generator"
-          className="container-section py-10"
-        >
-          <div>
+      <main className="container-section relative z-10 pt-20">
+        {/* HERO */}
+        <Hero ping={ping} />
+
+        {/* GENERATOR */}
+        <section id="generator" className="py-16">
+          <RevealSection>
             <div className="mb-8 text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/30 bg-orange-500/10 px-4 py-1">
-                <span className="text-orange-300">🎮</span>
-                <span className="text-[10px] font-bold tracking-widest text-orange-300">
-                  {t("sec_generator_eyebrow", lang)}
-                </span>
-              </div>
-              <h2 className="font-display mt-4 text-3xl font-black text-white sm:text-4xl">
-                {t("sec_generator_title", lang)}
-              </h2>
-              <p className="mt-2 text-sm text-white/60">
-                {t("sec_generator_sub", lang)}
-              </p>
+              <div className="text-[10px] uppercase tracking-widest text-white/40">{t("sec_generator_eyebrow", lang)}</div>
+              <h2 className="font-display text-2xl font-black text-white sm:text-3xl">{t("sec_generator_title", lang)}</h2>
+              <p className="mt-2 text-sm text-white/50">{t("sec_generator_sub", lang)}</p>
             </div>
+          </RevealSection>
 
-            {/* Controls */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-8 lg:grid-cols-2">
+            {/* CONTROLS */}
+            <div className="space-y-6">
+              <QuickSearch onSelect={onSearch} />
+
               {/* Device Selection */}
-              <div className="card neon-box rounded-2xl p-5 lg:row-span-2">
-                {/* Header */}
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">📱</span>
-                    <span className="font-display text-sm font-bold tracking-wide text-white">{t("device_select", lang)}</span>
-                  </div>
-                  <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-2.5 py-0.5 text-[10px] font-bold text-orange-300">
-                    {selectedBrand?.devices.length ?? 0} {isAr ? "جهاز" : "models"}
-                  </span>
-                </div>
-
-                {/* Brand Grid */}
-                <div className="mb-3">
-                  <div className="text-[10px] uppercase tracking-widest text-white/30 mb-2">{isAr ? "العلامة التجارية" : "BRAND"}</div>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {BRANDS.map((brand) => (
-                      <button
-                        key={brand.id}
-                        onClick={() => { handleBrandSelect(brand); setDeviceSearch(""); }}
-                        className={`group relative overflow-hidden rounded-xl border-2 p-2.5 text-center transition-all duration-200 ${
-                          selectedBrand?.id === brand.id
-                            ? "border-orange-400 bg-gradient-to-br from-orange-500/20 to-red-500/10 shadow-lg shadow-orange-500/15 scale-[1.04]"
-                            : "border-white/6 bg-black/30 hover:border-white/15 hover:bg-white/5"
-                        }`}
-                      >
-                        <div className="text-xl leading-none">{brand.icon}</div>
-                        <div className={`mt-1 text-[9px] font-bold leading-tight ${selectedBrand?.id === brand.id ? "text-orange-300" : "text-white/50 group-hover:text-white/70"}`}>
-                          {brand.name}
-                        </div>
-                        {selectedBrand?.id === brand.id && (
-                          <div className="absolute -top-px -right-px rounded-bl-lg rounded-tr-xl bg-orange-500 px-1 py-px text-[7px] font-black text-black">✓</div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Search */}
-                {selectedBrand && (
-                  <div className="relative mb-3">
-                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-white/30">🔍</span>
-                    <input
-                      type="text"
-                      value={deviceSearch}
-                      onChange={(e) => setDeviceSearch(e.target.value)}
-                      placeholder={isAr ? "ابحث عن جهاز..." : `Search ${selectedBrand.name}...`}
-                      className="w-full rounded-xl border border-white/8 bg-black/40 py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-white/30 focus:border-orange-500/40 focus:outline-none focus:ring-1 focus:ring-orange-500/30"
-                    />
-                    {deviceSearch && (
-                      <button onClick={() => setDeviceSearch("")} className="absolute inset-y-0 right-3 flex items-center text-white/40 hover:text-white">✕</button>
-                    )}
-                  </div>
-                )}
-
-                {/* Device List */}
-                {selectedBrand && (
-                  <div className="mb-3 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-white/6 bg-black/30 p-1.5 scrollbar-thin">
-                    {selectedBrand.devices
-                      .filter((d) => !deviceSearch || d.name.toLowerCase().includes(deviceSearch.toLowerCase()))
-                      .map((device) => {
-                        const realIdx = selectedBrand.devices.indexOf(device);
-                        const isSelected = realIdx === selectedDeviceIndex;
-                        return (
-                          <button
-                            key={realIdx}
-                            onClick={() => { handleDeviceSelect(realIdx); setDeviceSearch(""); }}
-                            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-all ${
-                              isSelected
-                                ? "bg-gradient-to-r from-orange-500/15 to-transparent border border-orange-500/25 shadow-sm shadow-orange-500/10"
-                                : "border border-transparent hover:bg-white/5"
-                            }`}
-                          >
-                            {/* Device indicator */}
-                            <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-sm ${
-                              isSelected ? "bg-orange-500/20 text-orange-300" : "bg-white/5 text-white/40"
-                            }`}>
-                              {device.screenSize >= 10 ? "📟" : "📱"}
-                            </div>
-
-                            {/* Info */}
-                            <div className="flex-1 min-w-0">
-                              <div className={`truncate text-sm font-semibold ${isSelected ? "text-orange-200" : "text-white/80"}`}>
-                                {device.name}
-                              </div>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className={`text-[10px] ${isSelected ? "text-orange-300/70" : "text-white/30"}`}>
-                                  ⚡{device.fps}Hz
-                                </span>
-                                <span className={`text-[10px] ${isSelected ? "text-orange-300/70" : "text-white/30"}`}>
-                                  👆{device.touchRate}Hz
-                                </span>
-                                <span className={`text-[10px] ${isSelected ? "text-orange-300/70" : "text-white/30"}`}>
-                                  📐{device.screenSize}"
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Gyro badge */}
-                            <div className={`flex-shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold ${
-                              device.gyroQuality === "excellent"
-                                ? "bg-emerald-500/15 text-emerald-300"
-                                : device.gyroQuality === "good"
-                                ? "bg-amber-500/15 text-amber-300"
-                                : "bg-white/5 text-white/40"
-                            }`}>
-                              {device.gyroQuality === "excellent" ? "★★★" : device.gyroQuality === "good" ? "★★" : "★"}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    {selectedBrand.devices.filter((d) => !deviceSearch || d.name.toLowerCase().includes(deviceSearch.toLowerCase())).length === 0 && (
-                      <div className="py-6 text-center text-sm text-white/30">{isAr ? "لا توجد نتائج" : "No results"}</div>
-                    )}
-                  </div>
-                )}
-
-                {/* Selected Device Card */}
-                <div className="rounded-xl border border-orange-500/15 bg-gradient-to-br from-orange-500/5 to-transparent p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500/25 to-red-500/15 text-xl">
-                      {currentDevice.screenSize >= 10 ? "📟" : "📱"}
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold text-white">{currentDevice.name}</div>
-                      <div className="text-[10px] text-orange-300/60">{selectedBrand?.name} · {currentDevice.resolution}</div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    {[
-                      { icon: "⚡", label: isAr ? "معدل الإطارات" : "FPS", value: `${currentDevice.fps} Hz`, color: currentDevice.fps >= 120 ? "text-emerald-300" : currentDevice.fps >= 90 ? "text-amber-300" : "text-white/60" },
-                      { icon: "👆", label: isAr ? "معدل اللمس" : "Touch Rate", value: `${currentDevice.touchRate} Hz`, color: currentDevice.touchRate >= 480 ? "text-emerald-300" : currentDevice.touchRate >= 240 ? "text-amber-300" : "text-white/60" },
-                      { icon: "📐", label: isAr ? "حجم الشاشة" : "Screen", value: `${currentDevice.screenSize}"`, color: "text-sky-300" },
-                      { icon: "📊", label: "PPI", value: `${getPPI(currentDevice)}`, color: "text-violet-300" },
-                    ].map((stat) => (
-                      <div key={stat.label} className="flex items-center gap-2">
-                        <span className="text-sm">{stat.icon}</span>
-                        <div>
-                          <div className="text-[9px] uppercase tracking-widest text-white/30">{stat.label}</div>
-                          <div className={`text-sm font-bold ${stat.color}`}>{stat.value}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Gyro bar */}
-                  <div className="mt-3 flex items-center gap-2">
-                    <span className="text-sm">🌀</span>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] uppercase tracking-widest text-white/30">{isAr ? "جودة الجايرو" : "GYRO QUALITY"}</span>
-                        <span className={`text-xs font-bold ${
-                          currentDevice.gyroQuality === "excellent" ? "text-emerald-300"
-                          : currentDevice.gyroQuality === "good" ? "text-amber-300"
-                          : "text-orange-300"
-                        }`}>{getGyroLabel(currentDevice)}</span>
-                      </div>
-                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
-                        <div className={`h-full rounded-full transition-all duration-500 ${
-                          currentDevice.gyroQuality === "excellent" ? "w-full bg-gradient-to-r from-emerald-500 to-emerald-300"
-                          : currentDevice.gyroQuality === "good" ? "w-2/3 bg-gradient-to-r from-amber-500 to-amber-300"
-                          : "w-1/3 bg-gradient-to-r from-orange-500 to-orange-300"
-                        }`} />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Gyro Mode */}
-              <div className="card rounded-2xl p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="text-xl">🌀</span>
-                  <span className="font-semibold text-white">{t("gyro_title", lang)}</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {gyroModes.map((mode) => (
-                    <button
-                      key={mode.id}
-                      onClick={() => setGyroMode(mode.id as GyroMode)}
-                      className={`rounded-xl border-2 p-4 text-center transition-all ${
-                        gyroMode === mode.id
-                          ? "border-orange-400 bg-orange-500/15 text-orange-300 scale-105 shadow-lg shadow-orange-500/20"
-                          : "border-white/8 bg-black/20 text-white/60 hover:border-orange-400/30 hover:bg-black/30"
-                      }`}
-                    >
-                      <div className="text-2xl mb-2">{mode.icon}</div>
-                      <div className="text-sm font-bold">
-                        {mode.id === "off" ? t("gyro_off", lang)
-                         : mode.id === "scope" ? t("gyro_scope", lang)
-                         : t("gyro_always", lang)}
-                      </div>
-                    </button>
+              <div className="card rounded-2xl p-5">
+                <div className="mb-3 text-sm font-bold text-orange-300">📱 {t("device_select", lang)}</div>
+                <select
+                  value={brandId}
+                  onChange={(e) => {
+                    const b = BRANDS.find((x) => x.id === e.target.value)!;
+                    setBrandId(b.id);
+                    setDevice(b.devices[0]);
+                  }}
+                  className="w-full mb-3"
+                >
+                  {BRANDS.map((b) => (
+                    <option key={b.id} value={b.id}>{b.icon} {b.name}</option>
                   ))}
-                </div>
-                <div className="mt-3 text-center text-xs text-white/40">
-                  {gyroMode === "off" ? t("gyro_msg_off", lang)
-                   : gyroMode === "scope" ? t("gyro_msg_scope", lang)
-                   : t("gyro_msg_always", lang)}
-                </div>
-              </div>
-
-              {/* Pro Profile */}
-              <div className="card rounded-2xl p-4 lg:col-span-2">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="text-xl">🏆</span>
-                  <span className="font-semibold text-white">
-                    {isAr ? "البروفايل الاحترافي" : "Pro Profile"}
-                  </span>
-                </div>
-                <div className="grid grid-cols-5 gap-2">
-                  {PRO_PROFILES.map((profile) => (
-                    <button
-                      key={profile.id}
-                      onClick={() => handleProfileSelect(profile)}
-                      className={`rounded-xl border-2 p-3 text-center transition-all ${
-                        currentProfile?.id === profile.id
-                          ? "border-orange-400 bg-orange-500/15 scale-105 shadow-lg shadow-orange-500/20"
-                          : "border-white/8 bg-black/20 hover:border-orange-400/30 hover:bg-black/30"
-                      }`}
-                    >
-                      <div className="text-2xl mb-1">{profile.icon}</div>
-                      <div className="text-xs font-bold text-white">
-                        {isAr ? profile.nameAr : profile.name}
-                      </div>
-                      <div className="text-[10px] text-white/40 mt-1">
-                        {profile.sensMultiplier > 1 && "+"}{(profile.sensMultiplier * 100 - 100).toFixed(0)}%
-                      </div>
-                    </button>
+                </select>
+                <select
+                  value={device.name}
+                  onChange={(e) => {
+                    const dev = currentBrand.devices.find((d) => d.name === e.target.value)!;
+                    setDevice(dev);
+                  }}
+                  className="w-full"
+                >
+                  {currentBrand.devices.map((dev) => (
+                    <option key={dev.name} value={dev.name}>{dev.name}</option>
                   ))}
+                </select>
+                <div className="mt-3 text-xs text-white/50">
+                  {t("device_selected", lang)}<span className="font-bold text-white">{device.name}</span>
                 </div>
-                <div className="mt-3 text-center text-xs text-white/40">
-                  {isAr ? "اختر أسلوب اللعب المناسب لك" : "Choose your preferred play style"}
+                <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                  <span className="rounded-full bg-white/5 px-2 py-1">⚡ {device.fps} FPS</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">👆 {device.touchRate} Hz</span>
+                  <span className="rounded-full bg-white/5 px-2 py-1">📐 {device.screenSize}"</span>
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-300">🌀 {gyroLabel}</span>
                 </div>
               </div>
 
-              {/* Fingers Selection */}
-              <div className="card rounded-2xl p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="text-xl">👆</span>
-                  <span className="font-semibold text-white">{t("fingers_title", lang)}</span>
+              {/* Finger Count */}
+              <div className="card rounded-2xl p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-sm font-bold text-white">✋ {t("fingers_title", lang)}</span>
+                  <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold text-orange-300">{fingers}F</span>
                 </div>
-                <div className="grid grid-cols-5 gap-2">
+                <div className="flex gap-2">
                   {FINGERS.map((f) => (
                     <button
                       key={f}
                       onClick={() => setFingers(f)}
-                      className={`rounded-xl border-2 p-4 text-center transition-all ${
-                        fingers === f
-                          ? "border-orange-400 bg-orange-500/15 text-orange-300 scale-105"
-                          : "border-white/8 bg-black/20 text-white/60 hover:border-orange-400/30 hover:bg-black/30"
+                      className={`flex-1 rounded-xl py-3 text-center font-bold transition-all ${
+                        fingers === f ? "bg-orange-500/20 text-orange-300 ring-2 ring-orange-400/50" : "bg-white/5 text-white/60 hover:bg-white/10"
                       }`}
                     >
-                      <div className="text-2xl font-black">{f}</div>
-                      <div className="text-xs text-white/50 mt-1">
-                        {isAr ? "أصابع" : "Fingers"}
-                      </div>
+                      {f}F
                     </button>
                   ))}
                 </div>
-                <div className="mt-3 text-center text-xs text-white/40">
-                  {isAr ? "اختر عدد الأصابع التي تستخدمها للعب" : "Select how many fingers you use to play"}
+                <div className="mt-3 text-[10px] text-white/40">
+                  {fingers <= 2 && (isAr ? "👆 إبهامان — أسهل للمبتدئين" : "👆 Two thumbs — easiest for beginners")}
+                  {fingers === 3 && (isAr ? "🖐️ 3 أصابع — توازن جيد" : "🖐️ 3 fingers — good balance")}
+                  {fingers === 4 && (isAr ? "🎮 4 أصابع (كلو) — الأكثر شيوعاً للمحترفين" : "🎮 4 fingers (claw) — most common for pros")}
+                  {fingers === 5 && (isAr ? "⚡ 5 أصابع — تحكم متقدم" : "⚡ 5 fingers — advanced control")}
+                  {fingers === 6 && (isAr ? "🏆 6 أصابع — أقصى تحكم" : "🏆 6 fingers — maximum control")}
+                </div>
+              </div>
+
+              {/* Gyro Mode */}
+              <div className="card rounded-2xl p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-sm font-bold text-white">🌀 {t("gyro_title", lang)}</span>
+                  <span className={`text-xs font-bold ${gyroMode === "off" ? "text-white/40" : gyroMode === "scope" ? "text-amber-300" : "text-emerald-300"}`}>
+                    {gyroMode === "off" ? t("gyro_status_off", lang) : gyroMode === "scope" ? t("gyro_status_scope", lang) : t("gyro_status_always", lang)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {gyroModes.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setGyroMode(m.id)}
+                      className={`rounded-xl py-3 text-center transition-all ${
+                        gyroMode === m.id ? "bg-orange-500/20 ring-2 ring-orange-400/50" : "bg-white/5 hover:bg-white/10"
+                      }`}
+                    >
+                      <div className="text-xl">{m.icon}</div>
+                      <div className="mt-1 text-[10px] font-bold text-white/80">{isAr ? m.labelAr : m.labelEn}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 text-[11px] text-white/50">
+                  {gyroMode === "off" && t("gyro_msg_off", lang)}
+                  {gyroMode === "scope" && t("gyro_msg_scope", lang)}
+                  {gyroMode === "always" && t("gyro_msg_always", lang)}
+                </div>
+              </div>
+
+              {/* Pro Profile - EXPANDED */}
+              <div className="card rounded-2xl p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <span className="text-sm font-bold text-white">🏆 {isAr ? "البروفايل الاحترافي" : "Pro Profile"}</span>
+                  <span className="rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-2.5 py-0.5 text-[10px] font-bold text-white">
+                    {currentProfile.icon} {isAr ? currentProfile.nameAr : currentProfile.name}
+                  </span>
+                </div>
+
+                {/* Category Tabs */}
+                <div className="flex gap-1 mb-4 overflow-x-auto pb-2">
+                  {profileCategories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setActiveCategory(cat.id)}
+                      className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                        activeCategory === cat.id 
+                          ? "bg-orange-500/20 text-orange-300 ring-1 ring-orange-400/50" 
+                          : "bg-white/5 text-white/50 hover:bg-white/10"
+                      }`}
+                    >
+                      {isAr ? cat.nameAr : cat.nameEn}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Profile Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {filteredProfiles.map((pr) => (
+                    <button
+                      key={pr.id}
+                      onClick={() => setProProfile(pr.id)}
+                      className={`rounded-xl p-3 text-center transition-all ${
+                        pr.isCustom 
+                          ? proProfile === pr.id
+                            ? "bg-gradient-to-br from-amber-500/30 via-orange-500/20 to-red-500/20 ring-2 ring-amber-400/70 shadow-lg shadow-orange-500/20"
+                            : "bg-gradient-to-br from-amber-500/10 to-orange-500/10 hover:from-amber-500/20 hover:to-orange-500/15 border border-amber-400/30"
+                          : proProfile === pr.id 
+                            ? "bg-gradient-to-br from-orange-500/20 to-amber-500/10 ring-2 ring-orange-400/50" 
+                            : "bg-white/5 hover:bg-white/10"
+                      }`}
+                    >
+                      <div className={`text-2xl ${pr.isCustom ? "animate-pulse" : ""}`}>{pr.icon}</div>
+                      <div className={`mt-1 text-xs font-bold ${pr.isCustom ? "text-amber-300" : "text-white"}`}>
+                        {isAr ? pr.nameAr : pr.name}
+                      </div>
+                      {pr.isCustom && (
+                        <div className="mt-1 text-[8px] text-amber-400/80 font-bold">EXCLUSIVE</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Profile Details */}
+                <div className="mt-4 rounded-xl border border-white/5 bg-black/20 p-4">
+                  <div className="text-sm font-bold text-white mb-2">{currentProfile.icon} {isAr ? currentProfile.nameAr : currentProfile.name}</div>
+                  <div className="text-xs text-white/60 mb-3">
+                    {isAr ? currentProfile.descriptionAr : currentProfile.description}
+                  </div>
+                  
+                  {/* Stats */}
+                  <div className="grid grid-cols-5 gap-2 mb-3">
+                    {[
+                      { label: isAr ? "تحكم" : "Recoil", value: currentProfile.recoilControl, color: "bg-red-500" },
+                      { label: isAr ? "تتبع" : "Track", value: currentProfile.tracking, color: "bg-emerald-500" },
+                      { label: isAr ? "فليك" : "Flick", value: currentProfile.flicking, color: "bg-sky-500" },
+                      { label: isAr ? "بعيد" : "Long", value: currentProfile.longRange, color: "bg-purple-500" },
+                      { label: isAr ? "قريب" : "CQC", value: currentProfile.cqcPower, color: "bg-orange-500" },
+                    ].map((stat) => (
+                      <div key={stat.label} className="text-center">
+                        <div className="text-[9px] text-white/40">{stat.label}</div>
+                        <div className="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div className={`h-full ${stat.color}`} style={{ width: `${stat.value}%` }} />
+                        </div>
+                        <div className="text-[10px] font-bold text-white/80">{stat.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Recommendations */}
+                  <div className="flex flex-wrap gap-2 text-[10px]">
+                    <span className="rounded-full bg-sky-500/10 px-2 py-1 text-sky-300">
+                      👆 {currentProfile.recommendedFingers.join("-")}F
+                    </span>
+                    <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-300">
+                      🌀 {currentProfile.recommendedGyro === "off" ? (isAr ? "بدون" : "Off") : currentProfile.recommendedGyro === "scope" ? (isAr ? "سكوب" : "Scope") : (isAr ? "دائم" : "Always")}
+                    </span>
+                    <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-300">
+                      🔫 {currentProfile.recommendedWeapons.slice(0, 2).join(", ")}
+                    </span>
+                  </div>
                 </div>
               </div>
 
               {/* Weapon Selection */}
+              <div className="card rounded-2xl p-5">
+                <div className="mb-3 text-sm font-bold text-orange-300">🔫 {t("weapon_title", lang)}</div>
+                <select
+                  value={weaponCatId}
+                  onChange={(e) => {
+                    const cat = WEAPONS.find((c) => c.id === e.target.value)!;
+                    setWeaponCatId(cat.id);
+                    setWeapon(cat.weapons[0]);
+                  }}
+                  className="w-full mb-3"
+                >
+                  {WEAPONS.map((c) => (
+                    <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={weapon.name}
+                  onChange={(e) => {
+                    const w = currentWeaponCat.weapons.find((x) => x.name === e.target.value)!;
+                    setWeapon(w);
+                  }}
+                  className="w-full"
+                >
+                  {currentWeaponCat.weapons.map((w) => (
+                    <option key={w.name} value={w.name}>{w.name}</option>
+                  ))}
+                </select>
+                <div className="mt-3 flex gap-4 text-xs">
+                  <span className="text-white/50">{t("weapon_recoil", lang)} <span className="font-bold text-red-300">🔥 {weapon.recoil}</span></span>
+                  <span className="text-white/50">{t("weapon_range", lang)} <span className="font-bold text-emerald-300">🎯 {weapon.range}</span></span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={handleCopy} className="btn-primary rounded-xl py-3 text-xs font-bold">
+                  {copied ? "✅" : "📋"} {isAr ? (copied ? "تم!" : "نسخ") : (copied ? "Done!" : "Copy")}
+                </button>
+                <button onClick={handleSave} className="btn-ghost rounded-xl py-3 text-xs font-bold">
+                  💾 {isAr ? "حفظ" : "Save"}
+                </button>
+                <button
+                  onClick={() => {
+                    const text = encodeURIComponent(
+                      `🦅 ALYAZOURI 2026\n📱 ${device.name} | 🔫 ${weapon.name}\n👤 ${currentProfile.name} | ${fingers}F\n🏆 AI Score: ${aiScore}/100\n\nCamera TPP: ${sens.cam.tpp}% | Red: ${sens.cam.red}% | 4x: ${sens.cam.scope4}%\nADS Red: ${sens.ads.red}% | 4x: ${sens.ads.scope4}%`
+                    );
+                    window.open(`https://wa.me/?text=${text}`, "_blank");
+                  }}
+                  className="btn-ghost rounded-xl py-3 text-xs font-bold"
+                >
+                  📤 {isAr ? "مشاركة" : "Share"}
+                </button>
+                <ExportPdfButton
+                  sens={sens}
+                  deviceName={device.name}
+                  weaponName={weapon.name}
+                  profileName={currentProfile.name}
+                  profileIcon={currentProfile.icon}
+                  fingers={fingers}
+                  gyroMode={gyroMode}
+                  aiScore={aiScore}
+                />
+              </div>
+            </div>
+
+            {/* OUTPUT */}
+            <div className="space-y-6">
+              {/* AI Score */}
+              <div className="card neon-box rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-white/40">{t("ai_score_label", lang)}</div>
+                    <div className="font-display text-xl font-bold text-white">{t("ai_score_title", lang)}</div>
+                    <div className="text-xs text-white/50">{device.name} · {weapon.name} · {fingers}F · {currentProfile.name}</div>
+                  </div>
+                  <div className="relative flex h-24 w-24 items-center justify-center">
+                    <svg className="absolute h-full w-full -rotate-90" viewBox="0 0 100 100">
+                      <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
+                      <circle
+                        cx="50" cy="50" r="45" fill="none"
+                        stroke="url(#scoreGrad)"
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={`${aiScore * 2.83} 283`}
+                      />
+                      <defs>
+                        <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor="#ff7a00" />
+                          <stop offset="100%" stopColor="#ffd166" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                    <div className="text-center">
+                      <div className="font-display text-2xl font-black text-orange-300">{aiScore}</div>
+                      <div className="text-[8px] uppercase tracking-widest text-white/40">AI SCORE</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Factors */}
+              <FactorsCard factors={sens.factors} />
+
+              {/* Sensitivity Tables */}
+              <SensTable
+                title={t("sens_camera", lang)}
+                icon="📷"
+                data={sens.cam}
+                max={300}
+              />
+              <SensTable
+                title={t("sens_ads", lang)}
+                icon="🎯"
+                data={sens.ads}
+                max={300}
+                accent="text-amber-300"
+                barClass="from-amber-500 to-yellow-400"
+              />
+
+              {gyroMode === "off" ? (
+                <div className="card rounded-2xl p-6 text-center">
+                  <span className="text-4xl">⭕</span>
+                  <div className="mt-2 text-lg font-bold text-white">{t("gyro_disabled_title", lang)}</div>
+                  <div className="text-sm text-white/50">{t("gyro_disabled_msg", lang)}</div>
+                </div>
+              ) : (
+                <>
+                  <SensTable
+                    title={t("sens_gyro_cam", lang)}
+                    icon={gyroMode === "scope" ? "🎯" : "🔄"}
+                    data={sens.gyro.cam}
+                    max={400}
+                    accent="text-emerald-300"
+                    barClass="from-emerald-500 to-teal-400"
+                  />
+                  <SensTable
+                    title={t("sens_gyro_ads", lang)}
+                    icon="🎮"
+                    data={sens.gyro.ads}
+                    max={400}
+                    accent="text-sky-300"
+                    barClass="from-sky-500 to-blue-400"
+                  />
+                </>
+              )}
+
+              {/* Free Look */}
               <div className="card rounded-2xl p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="text-xl">🔫</span>
-                  <span className="font-semibold text-white">{t("weapon_title", lang)}</span>
+                <div className="mb-3 text-sm font-bold text-orange-300">{t("sens_freelook", lang)}</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {Object.entries(sens.freeLook).map(([k, v]) => {
+                    const label = k === "cam" ? t("sens_freelook_cam", lang) : k === "parashoot" ? t("sens_freelook_para", lang) : t("sens_freelook_vehicle", lang);
+                    return (
+                      <div key={k} className="rounded-xl bg-white/5 p-3 text-center">
+                        <div className="text-xs text-white/50">{label}</div>
+                        <div className="font-display text-lg font-bold text-white">{v}%</div>
+                      </div>
+                    );
+                  })}
                 </div>
-                
-                {/* Weapon Category Selector */}
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      setShowWeaponDropdown(!showWeaponDropdown);
-                      setShowWeaponModelDropdown(false);
-                    }}
-                    className="flex w-full items-center justify-between rounded-lg border border-white/8 bg-black/20 p-3 text-left"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{selectedWeaponCategory?.icon}</span>
-                      <span className="font-semibold">{selectedWeaponCategory?.name}</span>
-                    </div>
-                    <span className="text-white/40">▾</span>
-                  </button>
-                  
-                  {showWeaponDropdown && (
-                    <div className="absolute top-full mt-2 max-h-64 overflow-y-auto rounded-xl border border-white/8 bg-black/30 p-2 shadow-2xl z-50">
-                      <div className="grid grid-cols-3 gap-2">
-                        {WEAPONS.map((category) => (
-                          <button
-                            key={category.id}
-                            onClick={() => handleWeaponCategorySelect(category)}
-                            className={`rounded-lg p-2 text-center text-sm transition-colors hover:bg-white/5 ${
-                              selectedWeaponCategory?.id === category.id ? "bg-orange-500/15 text-orange-300" : ""
-                            }`}
-                          >
-                            <div className="text-xl mb-1">{category.icon}</div>
-                            <div className="text-xs">{isAr ? category.name : category.name}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Weapon Model Selector */}
-                {selectedWeaponCategory && (
-                  <div className="relative mt-2">
-                    <button
-                      onClick={() => setShowWeaponModelDropdown(!showWeaponModelDropdown)}
-                      className="flex w-full items-center justify-between rounded-lg border border-white/8 bg-black/20 p-3 text-left"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">🔫</span>
-                        <span className="truncate">{currentWeapon.name}</span>
-                      </div>
-                      <span className="text-white/40">▾</span>
-                    </button>
-                    
-                    {showWeaponModelDropdown && (
-                      <div className="absolute top-full mt-2 max-h-64 overflow-y-auto rounded-xl border border-white/8 bg-black/30 p-2 shadow-2xl z-50">
-                        {selectedWeaponCategory.weapons.map((weapon, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => handleWeaponSelect(idx)}
-                            className={`w-full rounded-lg p-2 text-left text-sm transition-colors hover:bg-white/5 ${
-                              idx === selectedWeaponIndex ? "bg-orange-500/15 text-orange-300" : ""
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="text-lg">🔫</span>
-                              <span>{weapon.name}</span>
-                            </div>
-                            <div className="text-[10px] text-white/40">
-                              {t("weapon_recoil", lang)}: {weapon.recoil} · {t("weapon_range", lang)}: {weapon.range}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
-            </div>
 
-            {/* Action Buttons */}
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                onClick={saveProfile}
-                className={`rounded-xl px-5 py-3 text-sm font-bold transition-all ${
-                  justSaved
-                    ? "border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 shadow-lg shadow-emerald-500/10"
-                    : "btn-primary"
-                }`}
-              >
-                {justSaved
-                  ? (isAr ? "✅ تم الحفظ!" : "✅ Saved!")
-                  : (isAr ? "💾 حفظ الإعدادات" : "💾 Save Settings")}
-              </button>
-              <ShareButton />
-            </div>
-
-            {/* Output - AI Score */}
-            {sens && (
-              <div className="mt-8">
-                <div className="card neon-box rounded-2xl p-6">
-                  <div className="text-center">
-                    <div className="text-[10px] uppercase tracking-widest text-white/40">
-                      {t("ai_score_label", lang)}
-                    </div>
-                    <h3 className="mt-2 font-display text-xl font-bold text-white">
-                      {t("ai_score_title", lang)}
-                    </h3>
-                    <p className="text-sm text-white/60">
-                      {currentDevice.name} · {currentWeapon.name} · {fingers}{t("ai_suffix", lang)}
-                    </p>
-                    
-                    <div className="my-4">
-                      <div className="relative mx-auto h-24 w-24">
-                        <svg className="h-full w-full" viewBox="0 0 100 100">
-                          <circle
-                            cx="50"
-                            cy="50"
-                            r="45"
-                            stroke="rgba(255,122,0,0.1)"
-                            strokeWidth="8"
-                            fill="none"
-                          />
-                          <circle
-                            cx="50"
-                            cy="50"
-                            r="45"
-                            stroke="url(#aiGrad)"
-                            strokeWidth="8"
-                            fill="none"
-                            strokeDasharray="282.7"
-                            strokeDashoffset={282.7 - (282.7 * sens.aiScore) / 100}
-                            strokeLinecap="round"
-                            transform="rotate(-90 50 50)"
-                          />
-                          <defs>
-                            <linearGradient id="aiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                              <stop offset="0%" stopColor="#ff7a00" />
-                              <stop offset="100%" stopColor="#ffd166" />
-                            </linearGradient>
-                          </defs>
-                        </svg>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <span className="font-display text-2xl font-black text-orange-300">
-                            {sens.aiScore}
-                          </span>
-                        </div>
+              {/* Gameplay Settings */}
+              <div className="card neon-box rounded-2xl p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">⚙️</span>
+                    <div>
+                      <div className="text-sm font-bold text-white">
+                        {isAr ? "إعدادات اللعب" : "Gameplay Settings"}
                       </div>
-                      <div className="font-display text-lg font-bold text-white">
-                        AI SCORE
+                      <div className="text-[10px] text-white/40">
+                        {isAr ? "متناسقة مع حساسيتك" : "Synced with your sensitivity"}
                       </div>
                     </div>
                   </div>
+                  <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold text-indigo-300">PUBG</span>
                 </div>
 
-                {/* Pro Player Match */}
-                {(() => {
-                  const pros = findClosestPros(currentDevice, playStyleId, fingers);
-                  const top = pros[0];
-                  if (!top) return null;
-                  return (
-                    <div className="card neon-box mt-4 rounded-2xl p-4">
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">👑</span>
-                        <div>
-                          <div className="font-semibold text-white">
-                            {isAr ? "أقرب لاعب محترف" : "Closest Pro Player"}
-                          </div>
-                          <div className="text-sm text-white/60">
-                            {Math.round(top.similarity * 100)}% {isAr ? "تطابق" : "match"}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-3 rounded-xl border border-white/8 bg-black/20 p-3">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl">{top.player.flag}</span>
-                          <div>
-                            <div className="font-semibold text-white">{top.player.name}</div>
-                            <div className="text-xs text-white/40">
-                              {top.player.fingers}F · {top.player.gyro} · {top.player.weapon} · {top.player.device}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* حساسية الركض 75-100% */}
+                  <div className="rounded-xl border border-white/5 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">🏃</span>
+                      <span className="text-[10px] text-white/50">
+                        {isAr ? "حساسية الركض" : "Sprint Sensitivity"}
+                      </span>
                     </div>
-                  );
-                })()}
-
-                {/* Sensitivity Tables */}
-                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-
-                  {/* Camera Sensitivity 0-300% */}
-                  <div className="card rounded-2xl p-4">
-                    <div className="mb-1 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">📷</span>
-                        <span className="font-semibold text-white">{t("sens_camera", lang)}</span>
-                      </div>
-                      <span className="text-[10px] text-white/30">0 – 300%</span>
+                    <div className="flex items-end gap-1">
+                      <span className="font-display text-3xl font-black text-white">{sens.gameplay.sprintSensitivity}</span>
+                      <span className="text-sm text-white/40 mb-1">%</span>
                     </div>
-                    <div className="mt-3 space-y-1.5">
-                      {PUBG_ROWS.map((r) => {
-                        const v = sensVal(sens.cam, r.key);
-                        const pct = Math.min(100, (v / 300) * 100);
-                        return (
-                          <div key={r.key} className="flex items-center gap-3 rounded-lg border border-white/6 bg-black/20 px-3 py-2">
-                            <span className="w-[130px] truncate text-xs text-white/60">{r.label}</span>
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
-                              <div className="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="w-12 text-right font-display text-sm font-bold tabular-nums text-orange-300">{v}%</span>
-                          </div>
-                        );
-                      })}
+                    <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 stat-bar" style={{ width: `${((sens.gameplay.sprintSensitivity - 75) / 25) * 100}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[8px] text-white/20">
+                      <span>75%</span><span>100%</span>
                     </div>
                   </div>
 
-                  {/* ADS Sensitivity 0-300% */}
-                  <div className="card rounded-2xl p-4">
-                    <div className="mb-1 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">🎯</span>
-                        <span className="font-semibold text-white">{t("sens_ads", lang)}</span>
-                      </div>
-                      <span className="text-[10px] text-white/30">0 – 300%</span>
+                  {/* حجم زر الحركة 50-120% */}
+                  <div className="rounded-xl border border-white/5 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">🕹️</span>
+                      <span className="text-[10px] text-white/50">
+                        {isAr ? "حجم زر الحركة" : "Joystick Size"}
+                      </span>
                     </div>
-                    <div className="mt-3 space-y-1.5">
-                      {PUBG_ROWS.map((r) => {
-                        const v = sensVal(sens.ads, r.key);
-                        const pct = Math.min(100, (v / 300) * 100);
-                        return (
-                          <div key={r.key} className="flex items-center gap-3 rounded-lg border border-white/6 bg-black/20 px-3 py-2">
-                            <span className="w-[130px] truncate text-xs text-white/60">{r.label}</span>
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
-                              <div className="h-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-400 transition-all" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="w-12 text-right font-display text-sm font-bold tabular-nums text-sky-300">{v}%</span>
-                          </div>
-                        );
-                      })}
+                    <div className="flex items-end gap-1">
+                      <span className="font-display text-3xl font-black text-white">{sens.gameplay.joystickSize}</span>
+                      <span className="text-sm text-white/40 mb-1">%</span>
+                    </div>
+                    <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-purple-500 to-pink-400 stat-bar" style={{ width: `${((sens.gameplay.joystickSize - 50) / 70) * 100}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[8px] text-white/20">
+                      <span>50%</span><span>120%</span>
                     </div>
                   </div>
 
-                  {/* Gyro Sensitivity (if enabled) 0-400% */}
-                  {gyroMode !== "off" && (
-                    <>
-                      <div className="card rounded-2xl p-4">
-                        <div className="mb-1 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl">{gyroMode === "scope" ? "🎯" : "🔄"}</span>
-                            <span className="font-semibold text-white">{t("sens_gyro_cam", lang)}</span>
-                          </div>
-                          <span className="text-[10px] text-white/30">0 – 400%</span>
-                        </div>
-                        <div className="mt-3 space-y-1.5">
-                          {PUBG_ROWS.map((r) => {
-                            const v = sensVal(sens.gyro.cam, r.key);
-                            const pct = Math.min(100, (v / 400) * 100);
-                            return (
-                              <div key={r.key} className="flex items-center gap-3 rounded-lg border border-white/6 bg-black/20 px-3 py-2">
-                                <span className="w-[130px] truncate text-xs text-white/60">{r.label}</span>
-                                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
-                                  <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-purple-400 transition-all" style={{ width: `${pct}%` }} />
-                                </div>
-                                <span className="w-12 text-right font-display text-sm font-bold tabular-nums text-violet-300">{v > 0 ? v + "%" : "—"}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="card rounded-2xl p-4">
-                        <div className="mb-1 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl">🎯</span>
-                            <span className="font-semibold text-white">{t("sens_gyro_ads", lang)}</span>
-                          </div>
-                          <span className="text-[10px] text-white/30">0 – 400%</span>
-                        </div>
-                        <div className="mt-3 space-y-1.5">
-                          {PUBG_ROWS.map((r) => {
-                            const v = sensVal(sens.gyro.ads, r.key);
-                            const pct = Math.min(100, (v / 400) * 100);
-                            return (
-                              <div key={r.key} className="flex items-center gap-3 rounded-lg border border-white/6 bg-black/20 px-3 py-2">
-                                <span className="w-[130px] truncate text-xs text-white/60">{r.label}</span>
-                                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
-                                  <div className="h-full rounded-full bg-gradient-to-r from-pink-500 to-rose-400 transition-all" style={{ width: `${pct}%` }} />
-                                </div>
-                                <span className="w-12 text-right font-display text-sm font-bold tabular-nums text-pink-300">{v > 0 ? v + "%" : "—"}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {gyroMode === "off" && (
-                    <div className="card rounded-2xl p-6">
-                      <div className="text-center">
-                        <div className="text-4xl">⭕</div>
-                        <div className="mt-2 font-display text-sm font-bold text-white">{t("gyro_disabled_title", lang)}</div>
-                        <div className="mt-1 text-xs text-white/40">{t("gyro_disabled_msg", lang)}</div>
-                      </div>
+                  {/* منظور TPP 80-90% */}
+                  <div className="rounded-xl border border-white/5 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">👁️</span>
+                      <span className="text-[10px] text-white/50">
+                        {isAr ? "منظور TPP" : "TPP FOV"}
+                      </span>
                     </div>
-                  )}
-
-                  {/* Free Look 0-300% */}
-                  <div className="card rounded-2xl p-4">
-                    <div className="mb-1 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">👀</span>
-                        <span className="font-semibold text-white">{t("sens_freelook", lang)}</span>
-                      </div>
-                      <span className="text-[10px] text-white/30">0 – 300%</span>
+                    <div className="flex items-end gap-1">
+                      <span className="font-display text-3xl font-black text-white">{sens.gameplay.tppFOV}</span>
+                      <span className="text-sm text-white/40 mb-1">%</span>
                     </div>
-                    <div className="mt-3 space-y-1.5">
-                      {[
-                        { label: t("sens_freelook_cam", lang), val: sens.freeLook.cam },
-                        { label: t("sens_freelook_para", lang), val: sens.freeLook.parashoot },
-                        { label: t("sens_freelook_vehicle", lang), val: sens.freeLook.vehicle },
-                      ].map((fl) => {
-                        const pct = Math.min(100, (fl.val / 300) * 100);
-                        return (
-                          <div key={fl.label} className="flex items-center gap-3 rounded-lg border border-white/6 bg-black/20 px-3 py-2">
-                            <span className="w-[130px] truncate text-xs text-white/60">{fl.label}</span>
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
-                              <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="w-12 text-right font-display text-sm font-bold tabular-nums text-emerald-300">{fl.val}%</span>
-                          </div>
-                        );
-                      })}
+                    <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-orange-500 to-amber-400 stat-bar" style={{ width: `${((sens.gameplay.tppFOV - 80) / 10) * 100}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[8px] text-white/20">
+                      <span>80%</span><span>90%</span>
                     </div>
                   </div>
-                </div>
 
-                {/* Stability Analysis */}
-                <div className="card neon-box mt-6 rounded-2xl p-6">
-                  <div className="mb-4 flex items-center gap-2">
-                    <span className="text-xl">📊</span>
-                    <h3 className="font-display text-lg font-bold text-white">
-                      {t("stability_title", lang)}
-                    </h3>
-                  </div>
-                  <div className="text-center text-sm text-white/60">
-                    R = D × W × F × S
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-                    {[
-                      { 
-                        label: t("stability_device", lang), 
-                        val: sens.factors.deviceFactor, 
-                        color: "from-orange-500 to-red-500" 
-                      },
-                      { 
-                        label: t("stability_weapon", lang), 
-                        val: sens.factors.weaponFactor, 
-                        color: "from-amber-500 to-orange-500" 
-                      },
-                      { 
-                        label: t("stability_fingers", lang), 
-                        val: sens.factors.fingerFactor, 
-                        color: "from-emerald-500 to-teal-500" 
-                      },
-                      { 
-                        label: t("stability_style", lang), 
-                        val: sens.factors.styleFactor, 
-                        color: "from-sky-500 to-indigo-500" 
-                      },
-                    ].map((item) => {
-                      const pv = Math.round(item.val * 100);
-                      return (
-                        <div key={item.label} className="rounded-xl border border-white/8 bg-black/20 p-3">
-                          <div className="text-[10px] uppercase tracking-widest text-white/40">
-                            {item.label}
-                          </div>
-                          <div className="mt-1 flex items-center gap-2">
-                            <span className="font-display text-xl font-black text-orange-300">
-                              {pv}%
-                            </span>
-                            <div className="h-2 flex-1 rounded-full bg-black/50">
-                              <div
-                                className={`h-full rounded-full bg-gradient-to-r ${item.color}`}
-                                style={{ width: `${pv}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-4 text-center text-xs text-white/40">
-                    {t("stability_equation", lang)} · {t("stability_desc", lang)}
-                  </div>
-                </div>
-
-                {/* Sources */}
-                <div className="card mt-6 rounded-2xl p-5">
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="text-xl">📚</span>
-                    <span className="font-display text-sm font-bold text-white">{isAr ? "المصادر المعتمدة" : "Sensitivity Sources"}</span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                    {[
-                      { name: "PUBG Mobile In-Game", desc: isAr ? "إعدادات اللعبة الرسمية v4.x" : "Official settings v4.x", url: "#" },
-                      { name: "Manabuy Guide", desc: isAr ? "دليل الحساسية والارتداد" : "Sensitivity & Recoil Guide", url: "https://manabuy.com/blog/pubg-mobile/pubg-mobile-sensitivity-recoil-guide" },
-                      { name: "CocoDp", desc: isAr ? "أفضل حساسية 2025" : "Best Sensitivity 2025", url: "https://www.cocodp.com/news/best-sensitivity-for-pubg-mobile" },
-                      { name: "Revibyte 2026", desc: isAr ? "دليل كامل 2026" : "Complete Guide 2026", url: "https://www.revibyte.blog/pubgmobile/best-sensitivity-settings-pubg-mobile-2026/" },
-                      { name: "Cashify Pro Players", desc: isAr ? "إعدادات المحترفين" : "Jonathan, ScoutOP, Mortal", url: "https://www.cashify.in/how-to-adjust-sensitivity-to-improve-aim-in-pubg-mobile-and-fortnite" },
-                      { name: "AR-Pay 2026", desc: isAr ? "إعدادات حسب أسلوب اللعب" : "Playstyle-based settings", url: "https://ar-pay.com/blog/en/gaming/pubg/pubg-mobile-sensitivity-settings/" },
-                      { name: "VCGamers", desc: isAr ? "دليل ضبط الحساسية" : "Sensitivity Setup Guide", url: "https://www.vcgamers.com/news/en/find-out-how-to-easily-set-pubg-mobile-sensitivity/" },
-                      { name: "BitTopup", desc: isAr ? "أكواد حساسية 2026" : "Zero Recoil Codes 2026", url: "https://news.bittopup.com/news/pubg-mobile-sensitivity-codes-2025-90-zero-recoil-gyro" },
-                      { name: "Esports.net", desc: isAr ? "أفضل حساسية للتصويب" : "Best Sensitivity for Aim", url: "https://www.esports.net/news/mobile-games/best-sensitivity-for-pubg-mobile/" },
-                      { name: "BitTopup Guide", desc: isAr ? "دليل الحساسية الشامل" : "Complete Sensitivity Guide", url: "https://bittopup.com/article/PUBG-Mobile-Sensitivity-Settings-Guide-Master-Your-Aim-and-Control-in-2025" },
-                    ].map((src) => (
-                      <a
-                        key={src.name}
-                        href={src.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 rounded-lg border border-white/5 px-3 py-2 text-xs transition-colors hover:border-orange-500/20 hover:bg-white/3"
-                      >
-                        <span className="text-orange-400">🔗</span>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-semibold text-white/70">{src.name}</div>
-                          <div className="truncate text-[10px] text-white/30">{src.desc}</div>
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                  <div className="mt-3 text-center text-[10px] text-white/25">
-                    {isAr
-                      ? "جميع القيم مأخوذة من مصادر موثوقة ومقارنة مع إعدادات اللعبة الرسمية ولاعبين محترفين"
-                      : "All values sourced from trusted guides, official game settings, and verified pro player configurations"}
+                  {/* منظور FPP 80-103% */}
+                  <div className="rounded-xl border border-white/5 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">🎯</span>
+                      <span className="text-[10px] text-white/50">
+                        {isAr ? "منظور FPP" : "FPP FOV"}
+                      </span>
+                    </div>
+                    <div className="flex items-end gap-1">
+                      <span className="font-display text-3xl font-black text-white">{sens.gameplay.fppFOV}</span>
+                      <span className="text-sm text-white/40 mb-1">%</span>
+                    </div>
+                    <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-sky-500 to-blue-400 stat-bar" style={{ width: `${((sens.gameplay.fppFOV - 80) / 23) * 100}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[8px] text-white/20">
+                      <span>80%</span><span>103%</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            )}
-          </div>
-        </section>
 
-        {/* Ping Monitor */}
-        <section id="ping" className="container-section py-10">
-          <PingMonitor />
-        </section>
+              {/* Sensitivity Code — نسخ ومشاركة */}
+              <SensCode
+                sens={sens}
+                deviceName={device.name}
+                weaponName={weapon.name}
+                profileName={currentProfile.name}
+                fingers={fingers}
+                gyroMode={gyroMode}
+              />
 
-        {/* PAC Script */}
-        <section id="pac" className="container-section py-10">
-          <PacSection />
-        </section>
+              {/* Smart Tips — نصائح ذكية */}
+              <SmartTips
+                sens={sens}
+                device={device}
+                fingers={fingers}
+                gyroMode={gyroMode}
+                profile={currentProfile}
+                weaponType={weapon.type}
+              />
 
-        {/* Advanced Tools */}
-        <section id="advanced" className="container-section py-10">
-          <div className="mb-8 text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/30 bg-orange-500/10 px-4 py-1">
-              <span className="text-orange-300">🛠️</span>
-              <span className="text-[10px] font-bold tracking-widest text-orange-300">
-                ADVANCED TOOLS
-              </span>
+              {/* HUD Preview */}
+              <HudPreview fingers={fingers} />
+
+              {/* AI Predictions */}
+              <AIPredictions
+                sens={sens}
+                device={device}
+                fingers={fingers}
+                proProfile={proProfile}
+                weaponName={weapon.name}
+              />
+
+              {/* Stability Analysis */}
+              <div className="card rounded-2xl p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <span className="text-sm font-bold text-white">{t("stability_title", lang)}</span>
+                  <span className="text-xs text-white/40">R = D × W × F × P</span>
+                </div>
+                <div className="space-y-3">
+                  {[
+                    { label: t("stability_device", lang), value: (sens.factors.deviceFactor * 100).toFixed(0), color: "from-orange-500 to-red-500" },
+                    { label: t("stability_weapon", lang), value: (sens.factors.weaponFactor * 100).toFixed(0), color: "from-amber-500 to-orange-500" },
+                    { label: t("stability_fingers", lang), value: (sens.factors.fingerFactor * 100).toFixed(0), color: "from-emerald-500 to-teal-500" },
+                    { label: isAr ? "البروفايل" : "Profile", value: (sens.factors.profileFactor * 100).toFixed(0), color: "from-sky-500 to-indigo-500" },
+                  ].map((item) => (
+                    <div key={item.label} className="flex items-center gap-3">
+                      <span className="w-16 text-xs text-white/60">{item.label}</span>
+                      <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                        <div className={`h-full bg-gradient-to-r ${item.color} stat-bar`} style={{ width: `${item.value}%` }} />
+                      </div>
+                      <span className="w-10 text-right text-xs font-bold text-white">{item.value}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 text-[10px] text-white/40">
+                  <div>{t("stability_equation", lang)}</div>
+                  <div>{t("stability_desc", lang)}</div>
+                </div>
+              </div>
             </div>
-            <h2 className="font-display mt-4 text-3xl font-black text-white sm:text-4xl">
-              {isAr ? "أدوات متقدمة" : "Advanced Tools"}
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <QuickSearch
-              onSelectDevice={(brand, index) => {
-                setSelectedBrand(brand);
-                setSelectedDeviceIndex(index);
-              }}
-              onSelectWeapon={(category, index) => {
-                setSelectedWeaponCategory(category);
-                setSelectedWeaponIndex(index);
-              }}
-            />
-            <TouchTest />
-            <MusicPlayer />
-            <AIPredictions />
           </div>
         </section>
 
-        {/* Saved Profiles */}
-        <section id="saved" className="container-section py-10">
-          <div className="card neon-box rounded-2xl p-6">
-            <div className="mb-4 flex items-center gap-2">
-              <span className="text-2xl">🗂️</span>
-              <h3 className="font-display text-lg font-bold text-white">
-                {t("saved_title", lang)}
-              </h3>
-            </div>
-            <p className="mb-4 text-sm text-white/60">{t("saved_sub", lang)}</p>
+        {/* PING MONITOR */}
+        <section id="ping" className="py-16">
+          <RevealSection>
+            <PingMonitor />
+          </RevealSection>
+        </section>
 
+        {/* DNS JORDAN */}
+        <section className="py-16">
+          <RevealSection>
+            <DnsMonitor />
+          </RevealSection>
+        </section>
+
+        {/* NETWORK HEATMAP */}
+        <section className="py-16">
+          <RevealSection>
+            <NetworkHeatmap />
+          </RevealSection>
+        </section>
+
+        {/* PAC SECTION */}
+        <section id="pac" className="py-16">
+          <RevealSection>
+            <PacSection />
+          </RevealSection>
+        </section>
+
+        {/* SAVED PROFILES */}
+        <section className="py-16">
+          <RevealSection>
+            <div className="mb-8 text-center">
+              <div className="text-[10px] uppercase tracking-widest text-white/40">{t("saved_eyebrow", lang)}</div>
+              <h2 className="font-display text-2xl font-black text-white sm:text-3xl">{t("saved_title", lang)}</h2>
+              <p className="mt-2 text-sm text-white/50">{t("saved_sub", lang)}</p>
+            </div>
             {profiles.length === 0 ? (
-              <div className="py-8 text-center">
-                <div className="text-4xl">🗂️</div>
-                <p className="mt-4 text-white/60">{t("saved_empty", lang)}</p>
+              <div className="card rounded-2xl p-8 text-center">
+                <div className="text-4xl mb-3">🗂️</div>
+                <div className="text-white/50">{t("saved_empty", lang)}</div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {profiles.map((profile, idx) => {
-                  const s = computeSensitivity(profile.params);
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {profiles.map((p) => {
+                  const pSens = computeSensitivity(p.params);
                   return (
-                    <div
-                      key={idx}
-                      className="card rounded-xl p-4"
-                    >
-                      <div className="flex items-center justify-between">
+                    <div key={p.id} className="card rounded-2xl p-4 group">
+                      <div className="flex items-start justify-between">
                         <div>
-                          <div className="font-semibold text-white">{profile.name}</div>
-                          <div className="text-[10px] text-white/40">
-                            {new Date(profile.savedAt).toLocaleString()}
-                          </div>
+                          <div className="font-bold text-white text-sm">{p.name}</div>
+                          <div className="text-[10px] text-white/40">{new Date(p.savedAt).toLocaleString()}</div>
                         </div>
-                        <span className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-[10px] font-bold text-orange-300">
-                          AI: {s.aiScore}
-                        </span>
+                        <div className="font-display text-lg font-black text-orange-300">{pSens.aiScore}</div>
                       </div>
-                      <div className="mt-2 text-xs text-white/40">
-                        {profile.params.device.name} · {profile.params.weapon.name}
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-[10px]">
+                        <div className="rounded-lg bg-white/5 p-1.5 text-center">
+                          <div className="text-white/40">CAM</div>
+                          <div className="font-bold text-white">{pSens.cam.red}%</div>
+                        </div>
+                        <div className="rounded-lg bg-white/5 p-1.5 text-center">
+                          <div className="text-white/40">ADS</div>
+                          <div className="font-bold text-white">{pSens.ads.red}%</div>
+                        </div>
+                        <div className="rounded-lg bg-white/5 p-1.5 text-center">
+                          <div className="text-white/40">4x</div>
+                          <div className="font-bold text-white">{pSens.cam.scope4}%</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={() => {
+                            const b = BRANDS.find(x => x.id === p.params.brandId);
+                            const dev = b?.devices.find(d => d.name === p.params.device.name);
+                            if (b && dev) { setBrandId(b.id); setDevice(dev); }
+                            setFingers(p.params.fingers);
+                            setGyroMode(p.params.gyroMode);
+                            setProProfile(p.params.proProfile as ProProfileId);
+                            for (const c of WEAPONS) {
+                              const w = c.weapons.find(x => x.name === p.params.weaponName);
+                              if (w) { setWeaponCatId(c.id); setWeapon(w); break; }
+                            }
+                          }}
+                          className="flex-1 rounded-lg bg-orange-500/10 py-1.5 text-[10px] font-bold text-orange-300 hover:bg-orange-500/20 transition-colors"
+                        >
+                          ⬆️ {isAr ? "تحميل" : "Load"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            const next = profiles.filter(x => x.id !== p.id);
+                            setProfiles(next);
+                            try { localStorage.setItem(PROFILES_KEY, JSON.stringify(next)); } catch { /* */ }
+                          }}
+                          className="rounded-lg bg-red-500/10 px-3 py-1.5 text-[10px] font-bold text-red-300 hover:bg-red-500/20 transition-colors"
+                        >
+                          🗑️
+                        </button>
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
-          </div>
+          </RevealSection>
         </section>
 
-        {/* Rating */}
-        <section id="rating" className="container-section py-10">
-          <RatingSection />
+        {/* RATING */}
+        <section className="py-16">
+          <RevealSection>
+            <RatingSection />
+          </RevealSection>
         </section>
 
-        {/* About/Footer */}
-        <footer id="about" className="border-t border-white/8 bg-black/20 py-16">
-          <div className="container-section">
-            <div className="text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/30 bg-orange-500/10 px-4 py-1">
-                <span className="text-orange-300">ℹ️</span>
-                <span className="text-[10px] font-bold tracking-widest text-orange-300">
-                  ABOUT
-                </span>
-              </div>
-              <h2 className="font-display mt-4 text-3xl font-black text-white sm:text-4xl">
-                ALYAZOURI 2026{t("footer_about", lang)}
-              </h2>
-              
-              <div className="mt-6 max-w-2xl mx-auto">
-                <h3 className="font-semibold text-white">{t("footer_features", lang)}</h3>
-                <ul className="mt-3 grid grid-cols-1 gap-2 text-sm text-white/60 md:grid-cols-2">
-                  {["footer_f1", "footer_f2", "footer_f3", "footer_f4", "footer_f5"].map((k) => (
-                    <li key={k} className="flex items-center gap-2">
-                      <span className="text-emerald-300">✅</span>
-                      <span>{t(k as any, lang)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-8 pt-8 border-t border-white/8">
-                <p className="text-sm text-white/40">{t("footer_rights", lang)}</p>
-                <p className="mt-2 font-display text-xl font-bold text-orange-300">
-                  {t("footer_tagline", lang)}
-                </p>
-
-                <div className="mt-6 flex flex-wrap justify-center gap-4 text-sm text-white/60">
-                  <span>
-                    {t("hero_tiktok", lang)} 
-                    <span className="font-semibold text-white">@Saeedalyazouri0</span>
-                  </span>
-                  <span>
-                    {t("hero_instagram", lang)} 
-                    <span className="font-semibold text-white">@Saeedjor11</span>
-                  </span>
-                  <span>
-                    {t("hero_pubg_id", lang)} 
-                    <span className="font-semibold text-white">5744469523</span>
-                  </span>
-                </div>
-              </div>
+        {/* FOOTER */}
+        <footer id="about" className="border-t border-white/10 py-12">
+          <div className="text-center">
+            <div className="mb-4 font-display text-2xl font-black">
+              <span className="shimmer-text">ALYAZOURI</span>
+              <span className="text-white"> 2026</span>
+            </div>
+            <div className="text-sm text-white/50 mb-4">
+              {t("footer_rights", lang)}
+            </div>
+            <div className="font-display text-xs tracking-widest text-orange-300">
+              {t("footer_tagline", lang)}
+            </div>
+            <div className="mt-6 flex justify-center gap-4 text-white/40">
+              <a href="https://tiktok.com/@Saeedalyazouri0" target="_blank" rel="noopener noreferrer" className="hover:text-white">TikTok</a>
+              <a href="https://instagram.com/Saeedjor11" target="_blank" rel="noopener noreferrer" className="hover:text-white">Instagram</a>
             </div>
           </div>
         </footer>
       </main>
-
-      <PWABanner />
-    </>
+    </div>
   );
 }
-
-export default App;

@@ -31,7 +31,7 @@ export function LanguageSwitcher() {
       {open && (
         <div
           className="absolute top-full mt-2 min-w-[180px] overflow-hidden rounded-xl border border-white/10 bg-[#0a0a14]/95 p-1 shadow-2xl backdrop-blur-lg z-50"
-          style={{ [current.dir === "rtl" ? "right" : "left"]: 0 } as React.CSSProperties}
+          style={{ [current.name === "العربية" ? "right" : "left"]: 0 } as React.CSSProperties}
         >
           <div className="border-b border-white/5 px-3 py-1.5 text-[10px] uppercase tracking-widest text-white/40">
             Language

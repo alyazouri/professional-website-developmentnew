@@ -10,11 +10,7 @@ export const LANGUAGES: { id: Lang; name: string; flag: string; dir: "rtl" | "lt
   { id: "es", name: "Español", flag: "🇪🇸", dir: "ltr" },
 ];
 
-type Ctx = {
-  lang: Lang;
-  setLang: (l: Lang) => void;
-  dir: "rtl" | "ltr";
-};
+type Ctx = { lang: Lang; setLang: (l: Lang) => void; dir: "rtl" | "ltr" };
 
 const LanguageContext = createContext<Ctx | null>(null);
 
@@ -36,20 +32,14 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
   const dir = LANGUAGES.find((l) => l.id === lang)?.dir ?? "rtl";
 
-  const setLang = (l: Lang) => {
-    setLangState(l);
-    try {
-      localStorage.setItem(LS_KEY, l);
-    } catch { /* ignore */ }
-  };
-
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = dir;
+    try { localStorage.setItem(LS_KEY, lang); } catch { /* ignore */ }
   }, [lang, dir]);
 
   return (
-    <LanguageContext.Provider value={{ lang, setLang, dir }}>
+    <LanguageContext.Provider value={{ lang, setLang: setLangState, dir }}>
       {children}
     </LanguageContext.Provider>
   );

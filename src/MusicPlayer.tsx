@@ -1,218 +1,149 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useLang } from "./LanguageContext";
+
+const MUSIC_MUTED_KEY = "alyazouri_music_muted";
+const YOUTUBE_VIDEO_ID = "x-DJKKK8kns";
+const MUSIC_VOLUME = 15;
+
+declare global {
+  interface Window {
+    YT: {
+      Player: new (
+        elementId: string,
+        options: {
+          videoId: string;
+          playerVars: Record<string, unknown>;
+          events: Record<string, (e: { data: number }) => void>;
+        }
+      ) => YTPlayer;
+    };
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
+
+interface YTPlayer {
+  setVolume: (v: number) => void;
+  playVideo: () => void;
+  pauseVideo: () => void;
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+}
 
 export function MusicPlayer() {
   const { lang } = useLang();
   const isAr = lang === "ar";
-  
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(() => {
-    try {
-      return localStorage.getItem("music_muted") === "true";
-    } catch {
-      return true;
-    }
+  const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(() => {
+    try { return localStorage.getItem(MUSIC_MUTED_KEY) === "true"; } catch { return false; }
   });
-  const [hasInteracted, setHasInteracted] = useState(false);
-  const playerRef = useRef<any>(null);
+  const [loaded, setLoaded] = useState(false);
+  const playerRef = useRef<YTPlayer | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // YouTube video IDs for background music
-  const playlist = [
-    "dQw4w9WgXcQ", // Example - replace with actual gaming music
-    "9bZkp7q19s4",
-    "HZevd8lJx7M",
-  ];
-  const [currentTrack, setCurrentTrack] = useState(0);
+  const initPlayer = useCallback(() => {
+    if (loaded) return;
+    setLoaded(true);
 
-  // Initialize YouTube player
-  useEffect(() => {
-    if (!hasInteracted) return;
+    const div = document.createElement("div");
+    div.id = "yt-music-player";
+    div.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;";
+    document.body.appendChild(div);
+    containerRef.current = div;
 
-    // Load YouTube IFrame API
-    const tag = document.createElement("script");
-    tag.src = "https://www.youtube.com/iframe_api";
-    const firstScriptTag = document.getElementsByTagName("script")[0];
-    if (firstScriptTag && firstScriptTag.parentNode) {
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-    }
-
-    // @ts-ignore
-    window.onYouTubeIframeAPIReady = () => {
-      // @ts-ignore
-      const player = new window.YT.Player("youtube-player", {
-        height: "0",
-        width: "0",
-        videoId: playlist[currentTrack],
+    const create = (PC: typeof window.YT.Player) => {
+      if (playerRef.current) return;
+      const p = new PC("yt-music-player", {
+        videoId: YOUTUBE_VIDEO_ID,
         playerVars: {
-          autoplay: isPlaying ? 1 : 0,
+          autoplay: 0,
+          loop: 1,
+          playlist: YOUTUBE_VIDEO_ID,
           controls: 0,
           disablekb: 1,
           fs: 0,
-          iv_load_policy: 3,
           modestbranding: 1,
           rel: 0,
-          loop: 1,
-          playlist: playlist.join(","),
+          showinfo: 0,
+          iv_load_policy: 3,
+          origin: window.location.origin
         },
         events: {
-          onReady: (event: any) => {
-            playerRef.current = event.target;
-            if (isPlaying) {
-              playerRef.current.playVideo();
-            }
-            if (isMuted) {
-              playerRef.current.mute();
-            }
+          onReady: () => {
+            playerRef.current = p;
+            p.setVolume(MUSIC_VOLUME);
+            unmute(p);
           },
-          onStateChange: (event: any) => {
-            // @ts-ignore
-            if (event.data === window.YT.PlayerState.ENDED) {
-              const nextTrack = (currentTrack + 1) % playlist.length;
-              setCurrentTrack(nextTrack);
-              if (playerRef.current) {
-                playerRef.current.loadVideoById(playlist[nextTrack]);
-                if (isPlaying) {
-                  playerRef.current.playVideo();
-                }
-              }
+          onStateChange: (e: { data: number }) => {
+            if (e.data === 0) {
+              p.seekTo(0, true);
+              p.playVideo();
             }
           },
         },
       });
     };
 
-    return () => {
-      if (playerRef.current) {
-        playerRef.current.destroy();
-      }
+    window.onYouTubeIframeAPIReady = () => {
+      if (window.YT) create(window.YT.Player);
     };
-  }, [hasInteracted, currentTrack, isPlaying, isMuted]);
 
-  // Handle play/pause
-  useEffect(() => {
-    if (playerRef.current) {
-      if (isPlaying) {
-        playerRef.current.playVideo();
-      } else {
-        playerRef.current.pauseVideo();
-      }
+    if (!window.YT) {
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(tag);
     }
-  }, [isPlaying]);
 
-  // Handle mute
-  useEffect(() => {
-    if (playerRef.current) {
-      if (isMuted) {
-        playerRef.current.mute();
-      } else {
-        playerRef.current.unMute();
-      }
-    }
+    const check = () => {
+      if (window.YT?.Player) create(window.YT.Player);
+      else setTimeout(check, 200);
+    };
+    check();
+  }, [loaded]);
+
+  const unmute = useCallback((p?: YTPlayer) => {
+    const player = p ?? playerRef.current;
+    if (!player) return;
     try {
-      localStorage.setItem("music_muted", String(isMuted));
-    } catch { /* ignore */ }
-  }, [isMuted]);
+      player.setVolume(MUSIC_VOLUME);
+      player.playVideo();
+    } catch { /* */ }
+    setMuted(false);
+    setPlaying(true);
+    try { localStorage.setItem(MUSIC_MUTED_KEY, "false"); } catch { /* */ }
+  }, []);
 
-  const togglePlay = () => {
-    if (!hasInteracted) {
-      setHasInteracted(true);
+  const mute = useCallback(() => {
+    const player = playerRef.current;
+    if (!player) {
+      setMuted(true);
+      try { localStorage.setItem(MUSIC_MUTED_KEY, "true"); } catch { /* */ }
+      return;
     }
-    setIsPlaying(!isPlaying);
-  };
+    try { player.pauseVideo(); } catch { /* */ }
+    setMuted(true);
+    setPlaying(false);
+    try { localStorage.setItem(MUSIC_MUTED_KEY, "true"); } catch { /* */ }
+  }, []);
 
-  const toggleMute = () => {
-    setIsMuted(!isMuted);
-  };
-
-  const nextTrack = () => {
-    const next = (currentTrack + 1) % playlist.length;
-    setCurrentTrack(next);
-    if (playerRef.current) {
-      playerRef.current.loadVideoById(playlist[next]);
-      if (isPlaying) {
-        playerRef.current.playVideo();
-      }
+  const toggle = () => {
+    if (!loaded) {
+      initPlayer();
+      return;
     }
+    if (muted) unmute();
+    else mute();
   };
-
-  const prevTrack = () => {
-    const prev = (currentTrack - 1 + playlist.length) % playlist.length;
-    setCurrentTrack(prev);
-    if (playerRef.current) {
-      playerRef.current.loadVideoById(playlist[prev]);
-      if (isPlaying) {
-        playerRef.current.playVideo();
-      }
-    }
-  };
-
-  // Handle first user interaction
-  const handleFirstInteraction = () => {
-    setHasInteracted(true);
-    setIsPlaying(true);
-    setIsMuted(false);
-  };
-
-  if (!hasInteracted) {
-    return (
-      <div className="card rounded-2xl p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <span className="text-2xl">🎵</span>
-          <h3 className="font-display text-lg font-bold text-white">
-            {isAr ? "موسيقى خلفية" : "Background Music"}
-          </h3>
-        </div>
-        <p className="mb-4 text-sm text-white/60">
-          {isAr ? "انقر لاي مكان لبدء الموسيقى" : "Click anywhere to start music"}
-        </p>
-        <button onClick={handleFirstInteraction} className="btn-primary w-full rounded-xl py-3">
-          {isAr ? "تمكين الموسيقى" : "Enable Music"}
-        </button>
-      </div>
-    );
-  }
 
   return (
-    <div className="card neon-box rounded-2xl p-6">
-      <div className="mb-4 flex items-center gap-2">
-        <span className="text-2xl">🎵</span>
-        <h3 className="font-display text-lg font-bold text-white">
-          {isAr ? "موسيقى خلفية" : "Background Music"}
-        </h3>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button onClick={prevTrack} className="rounded-full border border-white/20 p-2 text-white/60 hover:bg-white/5">
-          ⏮️
-        </button>
-        <button onClick={togglePlay} className="rounded-full border border-orange-500/30 bg-orange-500/10 p-3 text-orange-300 hover:bg-orange-500/20">
-          {isPlaying ? "⏸️" : "▶️"}
-        </button>
-        <button onClick={nextTrack} className="rounded-full border border-white/20 p-2 text-white/60 hover:bg-white/5">
-          ⏭️
-        </button>
-        <button onClick={toggleMute} className="rounded-full border border-white/20 p-2 text-white/60 hover:bg-white/5">
-          {isMuted ? "🔇" : "🔊"}
-        </button>
-      </div>
-
-      <div className="mt-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-white/40">
-            {isAr ? "الآن" : "Now Playing"}:
-          </span>
-          <span className="text-sm font-semibold text-white">
-            {isAr ? "موسيقى ألعاب" : "Gaming Music"} {currentTrack + 1}/{playlist.length}
-          </span>
-        </div>
-      </div>
-
-      {/* Hidden YouTube player */}
-      <div id="youtube-player" />
-
-      <div className="mt-4 text-xs text-white/40">
-        {isAr ? "الموسيقى من YouTube" : "Music from YouTube"}
-      </div>
-    </div>
+    <button
+      onClick={toggle}
+      className={`fixed bottom-4 right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full border shadow-lg transition-all ${
+        playing && !muted
+          ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-300"
+          : "border-white/20 bg-black/50 text-white/50 hover:text-white"
+      }`}
+      title={isAr ? (muted ? "تشغيل الموسيقى" : "إيقاف الموسيقى") : (muted ? "Play Music" : "Mute Music")}
+    >
+      <span className="text-xl">{playing && !muted ? "🎵" : "🔇"}</span>
+    </button>
   );
 }

@@ -15,10 +15,12 @@ html {
 
 body {
   background:
+    /* Golden glow layers */
     radial-gradient(ellipse 140% 130% at 50% -15%, rgba(255,122,0,0.18) 0%, transparent 45%),
     radial-gradient(ellipse 60% 40% at 20% 80%, rgba(255,180,60,0.08) 0%, transparent 55%),
     radial-gradient(ellipse 60% 40% at 80% 80%, rgba(255,80,20,0.05) 0%, transparent 55%),
     radial-gradient(ellipse 90% 60% at 50% 25%, rgba(255,140,30,0.04) 0%, transparent 60%),
+    /* Base dark */
     #05070c;
   background-attachment: fixed;
   color: #fff;
@@ -128,7 +130,6 @@ section {
     linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
   background-size: 40px 40px;
 }
-
 .bg-radial-spot {
   background:
     radial-gradient(circle at 20% 20%, rgba(255,122,0,0.18), transparent 40%),
@@ -273,17 +274,32 @@ input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   width: 18px;
   height: 18px;
+  background: linear-gradient(135deg, #ff7a00, #ffd166);
   border-radius: 50%;
-  background: #ff7a00;
   cursor: pointer;
-  box-shadow: 0 0 10px rgba(255,122,0,0.5);
+  box-shadow: 0 2px 8px rgba(255,122,0,0.5);
 }
-input[type="range"]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #ff7a00;
+
+/* ==================== SELECT ==================== */
+select {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
   cursor: pointer;
-  border: none;
-  box-shadow: 0 0 10px rgba(255,122,0,0.5);
+  transition: all 0.2s;
+}
+select:hover {
+  border-color: rgba(255,122,0,0.3);
+}
+select:focus {
+  outline: none;
+  border-color: rgba(255,122,0,0.5);
+  box-shadow: 0 0 0 3px rgba(255,122,0,0.1);
+}
+select option {
+  background: #0a0a14;
+  color: white;
 }

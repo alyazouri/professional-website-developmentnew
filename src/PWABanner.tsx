@@ -1,90 +1,79 @@
 import { useState, useEffect } from "react";
 import { useLang } from "./LanguageContext";
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
 export function PWABanner() {
   const { lang } = useLang();
   const isAr = lang === "ar";
-  const [showBanner, setShowBanner] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [show, setShow] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    // Check if banner was dismissed before
-    try {
-      const dismissed = localStorage.getItem("pwa_banner_dismissed");
-      if (dismissed) return;
-    } catch { /* ignore */ }
+    const dismissed = localStorage.getItem("alyazouri_pwa_dismissed");
+    if (dismissed) return;
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+    if (isStandalone) return;
 
-    // Check if app is already installed
-    const isInstalled = window.matchMedia("(display-mode: standalone)").matches;
-    if (isInstalled) return;
-
-    // Listen for beforeinstallprompt event
-    const handleBeforeInstallPrompt = (e: Event) => {
+    const handler = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
-      setShowBanner(true);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setShow(true);
     };
+    window.addEventListener("beforeinstallprompt", handler);
 
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-
-    // Also show banner after a delay if no prompt appeared
     const timer = setTimeout(() => {
-      if (!showBanner) {
-        setShowBanner(true);
-      }
-    }, 10000);
+      if (!deferredPrompt && !isStandalone) setShow(true);
+    }, 5000);
 
     return () => {
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("beforeinstallprompt", handler);
       clearTimeout(timer);
     };
-  }, [showBanner]);
+  }, [deferredPrompt]);
 
   const handleInstall = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === "accepted") {
-        setShowBanner(false);
-      }
+      await deferredPrompt.userChoice;
       setDeferredPrompt(null);
-    } else {
-      // Fallback for browsers that don't support beforeinstallprompt
-      setShowBanner(false);
-      try {
-        localStorage.setItem("pwa_banner_dismissed", "true");
-      } catch { /* ignore */ }
     }
+    handleDismiss();
   };
 
   const handleDismiss = () => {
-    setShowBanner(false);
-    try {
-      localStorage.setItem("pwa_banner_dismissed", "true");
-    } catch { /* ignore */ }
+    setShow(false);
+    localStorage.setItem("alyazouri_pwa_dismissed", "true");
   };
 
-  if (!showBanner) return null;
+  if (!show) return null;
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50">
-      <div className="card neon-box rounded-2xl p-4">
-        <div className="flex items-center gap-3">
-          <span className="text-3xl">📱</span>
-          <div className="flex-1">
-            <h3 className="font-display text-lg font-bold text-white">
-              {isAr ? "تثبيت التطبيق" : "Install App"}
-            </h3>
-            <p className="text-sm text-white/60">
-              {isAr ? "تثبت هذا التطبيق على جهازك للوصول السريع" : "Install this app on your device for quick access"}
-            </p>
+    <div className="fixed bottom-20 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl border border-orange-400/30 bg-[#0a0a14]/95 p-4 shadow-2xl backdrop-blur-xl">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-red-600 text-xl">📱</div>
+        <div className="flex-1">
+          <div className="text-sm font-bold text-white">
+            {isAr ? "ثبّت التطبيق" : "Install App"}
           </div>
-          <div className="flex gap-2">
-            <button onClick={handleInstall} className="btn-primary rounded-lg px-4 py-2 text-sm">
-              {isAr ? "تثبيت" : "Install"}
-            </button>
-            <button onClick={handleDismiss} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/60 hover:bg-white/5">
-              {isAr ? "إغلاق" : "Close"}
+          <div className="mt-0.5 text-xs text-white/60">
+            {deferredPrompt ? (
+              isAr ? "ثبّت ALYAZOURI على جهازك للوصول السريع" : "Install ALYAZOURI on your device for quick access"
+            ) : (
+              isAr ? "📱 اضغط مشاركة ↗ ثم \"أضف للشاشة الرئيسية\"" : "📱 Tap Share ↗ then \"Add to Home Screen\""
+            )}
+          </div>
+          <div className="mt-3 flex gap-2">
+            {deferredPrompt && (
+              <button onClick={handleInstall} className="btn-primary rounded-lg px-3 py-1.5 text-xs">
+                {isAr ? "تثبيت" : "Install"}
+              </button>
+            )}
+            <button onClick={handleDismiss} className="btn-ghost rounded-lg px-3 py-1.5 text-xs">
+              {isAr ? "لاحقاً" : "Later"}
             </button>
           </div>
         </div>

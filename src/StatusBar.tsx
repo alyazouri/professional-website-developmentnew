@@ -5,11 +5,9 @@ import { NightModeToggle } from "./Features";
 
 export function StatusBar({ ping }: { ping: number | null }) {
   const { lang } = useLang();
-  const isAr = lang === "ar";
 
   const links = [
     { href: "#generator", label: t("nav_generator", lang) },
-    { href: "#advanced", label: isAr ? "المتقدم" : "Advanced" },
     { href: "#ping", label: t("nav_ping", lang) },
     { href: "#pac", label: t("nav_pac", lang) },
     { href: "#about", label: t("nav_about", lang) },
